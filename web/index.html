@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DataProtect DMZ Collector</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>DataProtect DMZ Collector</h1>
+      <small>LabShock DMZ Security Telemetry</small>
+    </div>
+    <div class="health">
+      <span id="health-pill" class="pill">offline</span>
+      <span id="rate-pill" class="pill">0 ev/s</span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="events">Events</button>
+    <button data-tab="sources">Sources</button>
+    <button data-tab="queue">Queue</button>
+    <button data-tab="forwarding">Forwarding</button>
+    <button data-tab="splunk">Splunk</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <section id="tab-dashboard" class="tab active"></section>
+    <section id="tab-events" class="tab"></section>
+    <section id="tab-sources" class="tab"></section>
+    <section id="tab-queue" class="tab"></section>
+    <section id="tab-forwarding" class="tab"></section>
+    <section id="tab-splunk" class="tab"></section>
+    <section id="tab-settings" class="tab"></section>
+  </main>
+
+  <dialog id="json-modal">
+    <h3>Event JSON</h3>
+    <pre id="json-modal-body"></pre>
+    <button id="json-modal-close">Close</button>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+

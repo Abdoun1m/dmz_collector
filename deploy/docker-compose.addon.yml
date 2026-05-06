@@ -1,0 +1,24 @@
+services:
+  dmz_collector:
+    build:
+      context: ./collector/dmz_collector
+      dockerfile: Dockerfile
+      args:
+        REPO_URL: https://github.com/Abdoun1m/dmz_collector
+        REPO_BRANCH: main
+    container_name: dmz_collector
+    network_mode: none
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      API_ADDR: 0.0.0.0:9000
+      STORAGE_BACKEND: jsonl
+      EVENTS_FILE: /data/events.jsonl
+      SPOOL_FILE: /data/spool/events.jsonl
+    volumes:
+      - dmz-collector-data:/data
+
+volumes:
+  dmz-collector-data:
+
