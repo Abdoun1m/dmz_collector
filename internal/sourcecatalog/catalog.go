@@ -210,6 +210,10 @@ func (c *Catalog) ObserveEvent(ev event.Event) bool {
 		state.SplunkSourcetype = &s
 	}
 	state.LastEvent = redactEventForUI(ev)
+	state.recentEvents = append(state.recentEvents, redactEventForUI(ev))
+	if len(state.recentEvents) > 50 {
+		state.recentEvents = state.recentEvents[len(state.recentEvents)-50:]
+	}
 	state.Group = sourceutil.GroupForSourceType(canonicalType)
 	state.Discovered = true
 	c.generatedAt = time.Now().UTC().Format(time.RFC3339Nano)

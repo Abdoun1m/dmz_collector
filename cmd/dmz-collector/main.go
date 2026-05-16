@@ -231,6 +231,7 @@ func (a *App) StatsTimeline() []map[string]any {
 }
 
 func (a *App) Sources() map[string]any {
+	a.refreshOTConfiguredSources()
 	snap := a.sourceCatalog.Snapshot()
 	return map[string]any{
 		"generated_at":      snap.GeneratedAt,
@@ -244,6 +245,7 @@ func (a *App) Sources() map[string]any {
 }
 
 func (a *App) SourcesSummary() map[string]any {
+	a.refreshOTConfiguredSources()
 	summary := a.sourceCatalog.Summary()
 	return map[string]any{
 		"generated_at":   summary.GeneratedAt,
@@ -256,6 +258,7 @@ func (a *App) SourcesSummary() map[string]any {
 }
 
 func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]any, bool) {
+	a.refreshOTConfiguredSources()
 	normalizedSourceType := sourceutil.NormalizeSourceType(sourceType)
 	detail, ok := a.sourceCatalog.Detail(normalizedSourceType, assetIP, limit)
 	if !ok {
@@ -272,6 +275,41 @@ func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]an
 		"source":        detail.Source,
 		"recent_events": detail.RecentEvents,
 	}, true
+}
+
+func (a *App) refreshOTConfiguredSources() {
+	if strings.TrimSpace(a.cfg.OTBaseURL) == "" {
+		return
+	}
+	a.logger.Info("refreshing OT configured sources", "ot_pull_enabled", a.cfg.EnableOTPull, "ot_collector_url", a.cfg.OTBaseURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.OTBaseURL+"/config/sources", nil)
+	if err != nil {
+		a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		a.logger.Warn("ot_config_sources_fetch_error", "status", resp.Status)
+		return
+	}
+	var rows []sourcecatalog.OTConfiguredSource
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&rows); err != nil {
+		a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		return
+	}
+	a.logger.Info("ot_config_sources_count", "ot_config_sources_count", len(rows))
+	a.sourceCatalog.MergeConfiguredSources(rows)
+	a.sourceCatalog.SetOTURL(a.cfg.OTBaseURL)
+	snap := a.sourceCatalog.Snapshot()
+	a.logger.Info("source merge result", "source_merge_configured_count", snap.ConfiguredSources, "source_merge_discovered_count", snap.DiscoveredSources)
 }
 
 func (a *App) ForwardingStatus() config.ForwardingStatus {
