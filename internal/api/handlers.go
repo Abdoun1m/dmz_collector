@@ -74,7 +74,10 @@ func (a *API) handleSources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ingest.WriteJSON(w, http.StatusOK, a.core.Sources())
+	includeInternal := parseBool(r.URL.Query().Get("include_internal"))
+	includeDisabled := parseBool(r.URL.Query().Get("include_disabled"))
+	includeDirectSIEM := parseBool(r.URL.Query().Get("include_direct_siem"))
+	ingest.WriteJSON(w, http.StatusOK, a.core.SourcesWithOptions(includeInternal, includeDisabled, includeDirectSIEM))
 }
 
 func (a *API) handleSourcesSummary(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +85,18 @@ func (a *API) handleSourcesSummary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ingest.WriteJSON(w, http.StatusOK, a.core.SourcesSummary())
+	includeInternal := parseBool(r.URL.Query().Get("include_internal"))
+	includeDisabled := parseBool(r.URL.Query().Get("include_disabled"))
+	includeDirectSIEM := parseBool(r.URL.Query().Get("include_direct_siem"))
+	ingest.WriteJSON(w, http.StatusOK, a.core.SourcesSummaryWithOptions(includeInternal, includeDisabled, includeDirectSIEM))
+}
+
+func (a *API) handleInternalSources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, a.core.InternalSources())
 }
 
 func (a *API) handleSourceDetail(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +237,15 @@ func (a *API) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ingest.WriteJSON(w, http.StatusOK, a.core.QueueStatus())
+}
+
+func parseBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *API) handleIDSAlerts(w http.ResponseWriter, r *http.Request) {

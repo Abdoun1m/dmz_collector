@@ -23,7 +23,10 @@ type Core interface {
 	StatsSummary() map[string]any
 	StatsTimeline() []map[string]any
 	Sources() map[string]any
+	SourcesWithOptions(bool, bool, bool) map[string]any
 	SourcesSummary() map[string]any
+	SourcesSummaryWithOptions(bool, bool, bool) map[string]any
+	InternalSources() map[string]any
 	SourceDetail(string, string, int) (map[string]any, bool)
 	ForwardingStatus() config.ForwardingStatus
 	ForwardingConfig() config.ForwardingConfig
@@ -62,6 +65,7 @@ func (a *API) Run(ctx context.Context) error {
 	mux.HandleFunc("/sources", a.handleSources)
 	mux.HandleFunc("/sources/summary", a.handleSourcesSummary)
 	mux.HandleFunc("/sources/detail", a.handleSourceDetail)
+	mux.HandleFunc("/internal/sources", a.handleInternalSources)
 	mux.HandleFunc("/forwarding/status", a.handleForwardingStatus)
 	mux.HandleFunc("/config/forwarding", a.handleConfigForwarding)
 	mux.HandleFunc("/config/rules", a.handleConfigRules)

@@ -8,7 +8,11 @@ const state = {
   sources: {},
   sourcesSummary: {},
   timeline: [],
-};
+  sourceVisibility: {
+    includeInternal: false,
+    includeDisabled: false,
+    includeDirectSIEM: false,
+  },
 
 const tabs = document.querySelectorAll(".tabs button");
 tabs.forEach((btn) => {
@@ -47,9 +51,27 @@ function sourceGroups() {
     "OPC UA",
     "GDS / PKI",
     "Engineering Workstation",
+    "DMZ Services",
     "IDS / Future Monitoring",
     "Unknown / Other",
   ];
+}
+
+function sourceVisibilityState() {
+  return state.sourceVisibility || {
+    includeInternal: false,
+    includeDisabled: false,
+    includeDirectSIEM: false,
+  };
+}
+
+function sourceVisibilityQuery() {
+  const vis = sourceVisibilityState();
+  return new URLSearchParams({
+    include_internal: vis.includeInternal ? "true" : "false",
+    include_disabled: vis.includeDisabled ? "true" : "false",
+    include_direct_siem: vis.includeDirectSIEM ? "true" : "false",
+  });
 }
 
 function sourceFilterState() {
@@ -219,6 +241,7 @@ function renderSources() {
   const snapshot = state.sources || {};
   const rows = snapshot.sources || [];
   const filter = sourceFilterState();
+  const vis = sourceVisibilityState();
   const filtered = rows.filter((s) => matchesSourceFilter(s, filter));
   const zones = [...new Set(rows.map((s) => s.zone).filter(Boolean))].sort();
   const sourceTypes = [...new Set(rows.map((s) => s.source_type).filter(Boolean))].sort();
@@ -226,11 +249,18 @@ function renderSources() {
   const groups = sourceGroups();
   document.getElementById("tab-sources").innerHTML = `
     <div class="card source-summary-bar">
-      <div><span class="label">Total</span> ${safe(snapshot.total_sources, 0)}</div>
-      <div><span class="label">Configured</span> ${safe(snapshot.configured_sources, 0)}</div>
-      <div><span class="label">Discovered</span> ${safe(snapshot.discovered_sources, 0)}</div>
+      <div><span class="label">Visible</span> ${safe(snapshot.visible_sources, snapshot.total_sources || 0)}</div>
+      <div><span class="label">Hidden</span> ${safe(snapshot.hidden_sources, 0)}</div>
+      <div><span class="label">Configured Total</span> ${safe(snapshot.configured_sources_total, snapshot.configured_sources || 0)}</div>
+      <div><span class="label">Discovered Visible</span> ${safe(snapshot.discovered_sources_visible, snapshot.discovered_sources || 0)}</div>
       <div><span class="label">Generated</span> ${esc(snapshot.generated_at)}</div>
       <div><span class="label">OT Source</span> ${esc(snapshot.ot_collector_url)}</div>
+    </div>
+    <div class="toolbar source-toggles">
+      <label><input id="src-toggle-internal" type="checkbox" ${vis.includeInternal ? "checked" : ""}> Show internal DMZ services</label>
+      <label><input id="src-toggle-disabled" type="checkbox" ${vis.includeDisabled ? "checked" : ""}> Show disabled sources</label>
+      <label><input id="src-toggle-direct-siem" type="checkbox" ${vis.includeDirectSIEM ? "checked" : ""}> Show direct-to-SIEM sources</label>
+      <button id="src-toggle-apply" class="primary">Refresh inventory</button>
     </div>
     <div class="toolbar source-filters">
       <select id="src-filter-group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${filter.group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
@@ -260,6 +290,14 @@ function renderSources() {
       }).join("")}
     </div>
   `;
+  document.getElementById("src-toggle-apply").addEventListener("click", () => {
+    state.sourceVisibility = {
+      includeInternal: document.getElementById("src-toggle-internal").checked,
+      includeDisabled: document.getElementById("src-toggle-disabled").checked,
+      includeDirectSIEM: document.getElementById("src-toggle-direct-siem").checked,
+    };
+    refresh();
+  });
   document.getElementById("src-filter-apply").addEventListener("click", () => renderSources());
   document.querySelectorAll(".source-detail").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -428,6 +466,7 @@ async function loadEvents(filters = {}) {
 }
 
 async function refresh() {
+  const visQuery = sourceVisibilityQuery();
   try {
     const [health, stats, statsSummary, queue, forwarding, forwardingStatus, sources, sourcesSummary, timeline] = await Promise.all([
       api("/health"),
@@ -436,8 +475,8 @@ async function refresh() {
       api("/queue/status"),
       api("/config/forwarding"),
       api("/forwarding/status"),
-      api("/sources"),
-      api("/sources/summary"),
+      api(`/sources?${visQuery.toString()}`),
+      api(`/sources/summary?${visQuery.toString()}`),
       api("/stats/timeline"),
     ]);
     state.stats = stats;

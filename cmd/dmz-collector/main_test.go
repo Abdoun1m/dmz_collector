@@ -44,7 +44,15 @@ func mockOTConfigServer(t *testing.T, payload any) *httptest.Server {
 func TestSourcesFetchesOTConfigAndMergesDiscoveredData(t *testing.T) {
 	otServer := mockOTConfigServer(t, []sourcecatalog.OTConfiguredSource{
 		{ID: "plc1", Name: "PLC1", Type: "plc", IP: "192.168.1.20", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc2", Name: "PLC2", Type: "plc", IP: "192.168.1.21", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc3", Name: "PLC3", Type: "plc", IP: "192.168.1.22", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc4", Name: "PLC4", Type: "plc", IP: "192.168.1.23", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc5", Name: "PLC5", Type: "plc", IP: "192.168.1.24", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "fuxa1", Name: "FUXA SCADA", Type: "scada", IP: "192.168.1.40", Protocol: "http", Impact: "medium", Zone: "L2", Enabled: true, ForwardEnabled: true},
+		{ID: "opcua1", Name: "OPC UA Server", Type: "opcua", IP: "192.168.1.50", Protocol: "opcua", Impact: "medium", Zone: "L2", Enabled: true, ForwardEnabled: true},
 		{ID: "gds1", Name: "OT GDS Agent", Type: "gds-agent", IP: "192.168.1.30", Protocol: "http", Impact: "high", Zone: "OT", Enabled: true, ForwardEnabled: true},
+		{ID: "ews1", Name: "EWS", Type: "ews", IP: "192.168.1.60", Protocol: "syslog", Impact: "medium", Zone: "L2", Enabled: true, ForwardEnabled: true},
+		{ID: "fw1", Name: "OPNsense OT Firewall", Type: "firewall", IP: "192.168.1.254", Protocol: "syslog", Impact: "high", Zone: "OT", Enabled: true, ForwardEnabled: true},
 	})
 	defer otServer.Close()
 
@@ -65,7 +73,14 @@ func TestSourcesFetchesOTConfigAndMergesDiscoveredData(t *testing.T) {
 		Tags:          map[string]any{"splunk_sourcetype": "labshock:ot:plc"},
 	})
 
-	items := app.Sources()["sources"].([]sourcecatalog.SourceRecord)
+	sources := app.Sources()
+	items := sources["sources"].([]sourcecatalog.SourceRecord)
+	if sources["visible_sources"] != 10 {
+		t.Fatalf("expected 10 visible sources, got %#v", sources["visible_sources"])
+	}
+	if sources["hidden_sources"] == 0 {
+		t.Fatalf("expected hidden internal sources, got %#v", sources)
+	}
 	var plc1, gds sourcecatalog.SourceRecord
 	for _, item := range items {
 		switch item.ID {
@@ -80,6 +95,11 @@ func TestSourcesFetchesOTConfigAndMergesDiscoveredData(t *testing.T) {
 	}
 	if gds.SourceType != "gds_agent" || gds.SourceKey != "gds_agent:192.168.1.30" || !gds.Configured {
 		t.Fatalf("unexpected GDS record: %#v", gds)
+	}
+	for _, item := range items {
+		if item.Group == "DMZ Services" {
+			t.Fatalf("did not expect DMZ Services in default sources: %#v", item)
+		}
 	}
 }
 

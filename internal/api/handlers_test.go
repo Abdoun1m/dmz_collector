@@ -31,7 +31,10 @@ func (statsCoreStub) StatsSummary() map[string]any {
 }
 func (statsCoreStub) StatsTimeline() []map[string]any                      { return nil }
 func (statsCoreStub) Sources() map[string]any                              { return nil }
+func (statsCoreStub) SourcesWithOptions(bool, bool, bool) map[string]any    { return nil }
 func (statsCoreStub) SourcesSummary() map[string]any                       { return nil }
+func (statsCoreStub) SourcesSummaryWithOptions(bool, bool, bool) map[string]any { return nil }
+func (statsCoreStub) InternalSources() map[string]any                      { return nil }
 func (statsCoreStub) SourceDetail(string, string, int) (map[string]any, bool) { return nil, false }
 func (statsCoreStub) ForwardingStatus() config.ForwardingStatus            { return config.ForwardingStatus{} }
 func (statsCoreStub) ForwardingConfig() config.ForwardingConfig            { return config.ForwardingConfig{} }
@@ -62,5 +65,49 @@ func TestHandleStatsSummaryAlias(t *testing.T) {
 	summaryBody := assertStatsResponse("/stats/summary")
 	if !reflect.DeepEqual(statsBody, summaryBody) {
 		t.Fatalf("expected /stats and /stats/summary to match, got %#v vs %#v", statsBody, summaryBody)
+	}
+}
+
+type sourceQueryStub struct{}
+
+func (sourceQueryStub) IngestBatch([]event.Event) (int, int, int, []string) { return 0, 0, 0, nil }
+func (sourceQueryStub) IngestSingle(event.Event) error                      { return nil }
+func (sourceQueryStub) ReadEvents(storage.EventQuery) ([]event.Event, error) { return nil, nil }
+func (sourceQueryStub) ReadEventByID(string) (event.Event, bool, error)      { return event.Event{}, false, nil }
+func (sourceQueryStub) Stats() map[string]any                                 { return nil }
+func (sourceQueryStub) StatsSummary() map[string]any                         { return nil }
+func (sourceQueryStub) StatsTimeline() []map[string]any                       { return nil }
+func (sourceQueryStub) Sources() map[string]any                               { return nil }
+func (sourceQueryStub) SourcesWithOptions(includeInternal, includeDisabled, includeDirectSIEM bool) map[string]any {
+	return map[string]any{"include_internal": includeInternal, "include_disabled": includeDisabled, "include_direct_siem": includeDirectSIEM}
+}
+func (sourceQueryStub) SourcesSummary() map[string]any                        { return nil }
+func (sourceQueryStub) SourcesSummaryWithOptions(includeInternal, includeDisabled, includeDirectSIEM bool) map[string]any {
+	return map[string]any{"include_internal": includeInternal, "include_disabled": includeDisabled, "include_direct_siem": includeDirectSIEM}
+}
+func (sourceQueryStub) InternalSources() map[string]any                       { return map[string]any{"internal": true} }
+func (sourceQueryStub) SourceDetail(string, string, int) (map[string]any, bool) { return nil, false }
+func (sourceQueryStub) ForwardingStatus() config.ForwardingStatus             { return config.ForwardingStatus{} }
+func (sourceQueryStub) ForwardingConfig() config.ForwardingConfig             { return config.ForwardingConfig{} }
+func (sourceQueryStub) UpdateForwardingConfig(config.ForwardingConfig) error  { return nil }
+func (sourceQueryStub) TestForwarding() (map[string]any, error)               { return nil, nil }
+func (sourceQueryStub) FlushForwarding() map[string]any                       { return nil }
+func (sourceQueryStub) QueueStatus() map[string]any                           { return nil }
+func (sourceQueryStub) Health() map[string]any                                { return nil }
+
+func TestHandleSourcesQueryFlags(t *testing.T) {
+	a := &API{core: sourceQueryStub{}}
+	req := httptest.NewRequest(http.MethodGet, "/sources?include_internal=true&include_disabled=true&include_direct_siem=true", nil)
+	rr := httptest.NewRecorder()
+	a.handleSources(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d", rr.Code)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if out["include_internal"] != true || out["include_disabled"] != true || out["include_direct_siem"] != true {
+		t.Fatalf("unexpected include flags: %#v", out)
 	}
 }

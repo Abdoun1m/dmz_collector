@@ -231,30 +231,64 @@ func (a *App) StatsTimeline() []map[string]any {
 }
 
 func (a *App) Sources() map[string]any {
+	return a.SourcesWithOptions(false, false, false)
+}
+
+func (a *App) SourcesWithOptions(includeInternal, includeDisabled, includeDirectSIEM bool) map[string]any {
 	a.refreshOTConfiguredSources()
-	snap := a.sourceCatalog.Snapshot()
+	snap := a.sourceCatalog.Snapshot(sourcecatalog.VisibilityOptions{
+		IncludeInternal:   includeInternal,
+		IncludeDisabled:   includeDisabled,
+		IncludeDirectSIEM: includeDirectSIEM,
+	})
 	return map[string]any{
-		"generated_at":      snap.GeneratedAt,
-		"source_of_truth":   snap.SourceOfTruth,
-		"ot_collector_url":  snap.OTCollectorURL,
-		"total_sources":     snap.TotalSources,
-		"configured_sources": snap.ConfiguredSources,
-		"discovered_sources": snap.DiscoveredSources,
-		"sources":           snap.Sources,
+		"generated_at":                 snap.GeneratedAt,
+		"source_of_truth":              snap.SourceOfTruth,
+		"ot_collector_url":             snap.OTCollectorURL,
+		"visible_sources":              snap.VisibleSources,
+		"hidden_sources":               snap.HiddenSources,
+		"configured_sources_total":     snap.ConfiguredSourcesTotal,
+		"discovered_sources_visible":    snap.DiscoveredSourcesVisible,
+		"internal_sources_hidden":       snap.InternalSourcesHidden,
+		"disabled_sources_hidden":       snap.DisabledSourcesHidden,
+		"direct_siem_sources_hidden":    snap.DirectSIEMSourcesHidden,
+		"total_sources":                snap.TotalSources,
+		"configured_sources":           snap.ConfiguredSources,
+		"discovered_sources":           snap.DiscoveredSources,
+		"sources":                      snap.Sources,
 	}
 }
 
 func (a *App) SourcesSummary() map[string]any {
+	return a.SourcesSummaryWithOptions(false, false, false)
+}
+
+func (a *App) SourcesSummaryWithOptions(includeInternal, includeDisabled, includeDirectSIEM bool) map[string]any {
 	a.refreshOTConfiguredSources()
-	summary := a.sourceCatalog.Summary()
+	summary := a.sourceCatalog.Summary(sourcecatalog.VisibilityOptions{
+		IncludeInternal:   includeInternal,
+		IncludeDisabled:   includeDisabled,
+		IncludeDirectSIEM: includeDirectSIEM,
+	})
 	return map[string]any{
-		"generated_at":   summary.GeneratedAt,
-		"by_group":       summary.ByGroup,
-		"by_source_type": summary.BySourceType,
-		"by_zone":        summary.ByZone,
-		"by_severity":    summary.BySeverity,
-		"by_category":    summary.ByCategory,
+		"generated_at":                 summary.GeneratedAt,
+		"visible_sources":              summary.VisibleSources,
+		"hidden_sources":               summary.HiddenSources,
+		"configured_sources_total":     summary.ConfiguredSourcesTotal,
+		"discovered_sources_visible":    summary.DiscoveredSourcesVisible,
+		"internal_sources_hidden":       summary.InternalSourcesHidden,
+		"disabled_sources_hidden":       summary.DisabledSourcesHidden,
+		"direct_siem_sources_hidden":    summary.DirectSIEMSourcesHidden,
+		"by_group":                     summary.ByGroup,
+		"by_source_type":               summary.BySourceType,
+		"by_zone":                      summary.ByZone,
+		"by_severity":                  summary.BySeverity,
+		"by_category":                  summary.ByCategory,
 	}
+}
+
+func (a *App) InternalSources() map[string]any {
+	return a.SourcesWithOptions(true, true, true)
 }
 
 func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]any, bool) {

@@ -2,6 +2,12 @@ package sourceutil
 
 import "strings"
 
+var placeholderNames = map[string]struct{}{
+	"firewall future": {},
+	"ids future":      {},
+	"future ids":      {},
+}
+
 func NormalizeSourceType(raw string) string {
 	t := strings.ToLower(strings.TrimSpace(raw))
 	switch t {
@@ -80,4 +86,22 @@ func SplunkSourcetypeFor(sourceType string) string {
 	default:
 		return "labshock:ot:unknown"
 	}
+}
+
+func IsInternalDMZSourceType(sourceType string) bool {
+	switch NormalizeSourceType(sourceType) {
+	case "influxdb", "opcua_gateway", "collector", "vault":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsDirectSIEMSourceType(sourceType string) bool {
+	return NormalizeSourceType(sourceType) == "ids"
+}
+
+func IsPlaceholderSourceName(name string) bool {
+	_, ok := placeholderNames[strings.ToLower(strings.TrimSpace(name))]
+	return ok
 }

@@ -66,22 +66,42 @@ type GroupSummary struct {
 }
 
 type SourceSnapshot struct {
-	GeneratedAt       string         `json:"generated_at"`
-	SourceOfTruth     string         `json:"source_of_truth"`
-	OTCollectorURL    string         `json:"ot_collector_url"`
-	TotalSources      int            `json:"total_sources"`
-	ConfiguredSources  int            `json:"configured_sources"`
-	DiscoveredSources  int            `json:"discovered_sources"`
-	Sources           []SourceRecord `json:"sources"`
+	GeneratedAt             string         `json:"generated_at"`
+	SourceOfTruth           string         `json:"source_of_truth"`
+	OTCollectorURL          string         `json:"ot_collector_url"`
+	VisibleSources          int            `json:"visible_sources"`
+	HiddenSources           int            `json:"hidden_sources"`
+	ConfiguredSourcesTotal  int            `json:"configured_sources_total"`
+	DiscoveredSourcesVisible int            `json:"discovered_sources_visible"`
+	InternalSourcesHidden   int            `json:"internal_sources_hidden"`
+	DisabledSourcesHidden   int            `json:"disabled_sources_hidden"`
+	DirectSIEMSourcesHidden int            `json:"direct_siem_sources_hidden"`
+	TotalSources            int            `json:"total_sources"`
+	ConfiguredSources       int            `json:"configured_sources"`
+	DiscoveredSources       int            `json:"discovered_sources"`
+	Sources                 []SourceRecord `json:"sources"`
 }
 
 type SourceSummary struct {
-	GeneratedAt   string                  `json:"generated_at"`
-	ByGroup       map[string]GroupSummary `json:"by_group"`
-	BySourceType  map[string]int64        `json:"by_source_type"`
-	ByZone        map[string]int64        `json:"by_zone"`
-	BySeverity    map[string]int64        `json:"by_severity"`
-	ByCategory    map[string]int64        `json:"by_category"`
+	GeneratedAt             string                  `json:"generated_at"`
+	VisibleSources          int                     `json:"visible_sources"`
+	HiddenSources           int                     `json:"hidden_sources"`
+	ConfiguredSourcesTotal   int                     `json:"configured_sources_total"`
+	DiscoveredSourcesVisible int                     `json:"discovered_sources_visible"`
+	InternalSourcesHidden    int                     `json:"internal_sources_hidden"`
+	DisabledSourcesHidden    int                     `json:"disabled_sources_hidden"`
+	DirectSIEMSourcesHidden  int                     `json:"direct_siem_sources_hidden"`
+	ByGroup                 map[string]GroupSummary `json:"by_group"`
+	BySourceType            map[string]int64        `json:"by_source_type"`
+	ByZone                  map[string]int64        `json:"by_zone"`
+	BySeverity              map[string]int64        `json:"by_severity"`
+	ByCategory              map[string]int64        `json:"by_category"`
+}
+
+type VisibilityOptions struct {
+	IncludeInternal    bool
+	IncludeDisabled    bool
+	IncludeDirectSIEM  bool
 }
 
 type SourceDetail struct {
@@ -226,35 +246,61 @@ func (c *Catalog) BootstrapEvents(events []event.Event) {
 	}
 }
 
-func (c *Catalog) Snapshot() SourceSnapshot {
+func (c *Catalog) Snapshot(opts VisibilityOptions) SourceSnapshot {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	out := make([]SourceRecord, 0, len(c.records))
-	configured := 0
-	discovered := 0
+	visible := 0
+	hidden := 0
+	configuredTotal := 0
+	discoveredVisible := 0
+	internalHidden := 0
+	disabledHidden := 0
+	directSIEMHidden := 0
 	for _, state := range c.records {
 		rec := state.snapshot()
-		out = append(out, rec)
 		if rec.Configured {
-			configured++
+			configuredTotal++
 		}
-		if rec.Discovered {
-			discovered++
+		if shouldIncludeSource(rec, opts) {
+			out = append(out, rec)
+			visible++
+			if rec.Discovered {
+				discoveredVisible++
+			}
+		} else {
+			hidden++
+			if isInternalSourceRecord(rec) {
+				internalHidden++
+			}
+			if !rec.Enabled {
+				disabledHidden++
+			}
+			if sourceutil.IsDirectSIEMSourceType(rec.SourceType) {
+				directSIEMHidden++
+			}
 		}
 	}
 	sortSources(out)
 	return SourceSnapshot{
-		GeneratedAt:      c.generatedAt,
-		SourceOfTruth:    "ot_collector",
-		OTCollectorURL:   c.otURL,
-		TotalSources:     len(out),
-		ConfiguredSources: configured,
-		DiscoveredSources: discovered,
-		Sources:          out,
+		GeneratedAt:             c.generatedAt,
+		SourceOfTruth:           "ot_collector",
+		OTCollectorURL:          c.otURL,
+		VisibleSources:          visible,
+		HiddenSources:           hidden,
+		ConfiguredSourcesTotal:  configuredTotal,
+		DiscoveredSourcesVisible: discoveredVisible,
+		InternalSourcesHidden:   internalHidden,
+		DisabledSourcesHidden:   disabledHidden,
+		DirectSIEMSourcesHidden: directSIEMHidden,
+		TotalSources:            visible,
+		ConfiguredSources:       configuredTotal,
+		DiscoveredSources:       discoveredVisible,
+		Sources:                 out,
 	}
 }
 
-func (c *Catalog) Summary() SourceSummary {
+func (c *Catalog) Summary(opts VisibilityOptions) SourceSummary {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	byGroup := map[string]GroupSummary{}
@@ -262,8 +308,35 @@ func (c *Catalog) Summary() SourceSummary {
 	byZone := map[string]int64{}
 	bySeverity := map[string]int64{}
 	byCategory := map[string]int64{}
+	visible := 0
+	hidden := 0
+	configuredTotal := 0
+	discoveredVisible := 0
+	internalHidden := 0
+	disabledHidden := 0
+	directSIEMHidden := 0
 	for _, state := range c.records {
 		rec := state.snapshot()
+		if rec.Configured {
+			configuredTotal++
+		}
+		if !shouldIncludeSource(rec, opts) {
+			hidden++
+			if isInternalSourceRecord(rec) {
+				internalHidden++
+			}
+			if !rec.Enabled {
+				disabledHidden++
+			}
+			if sourceutil.IsDirectSIEMSourceType(rec.SourceType) {
+				directSIEMHidden++
+			}
+			continue
+		}
+		visible++
+		if rec.Discovered {
+			discoveredVisible++
+		}
 		g := byGroup[rec.Group]
 		g.SourceCount++
 		if rec.Configured {
@@ -282,12 +355,19 @@ func (c *Catalog) Summary() SourceSummary {
 		byCategory = mergeCounts(byCategory, rec.CategoryCounts)
 	}
 	return SourceSummary{
-		GeneratedAt:  c.generatedAt,
-		ByGroup:      byGroup,
-		BySourceType: bySourceType,
-		ByZone:       byZone,
-		BySeverity:   bySeverity,
-		ByCategory:   byCategory,
+		GeneratedAt:             c.generatedAt,
+		VisibleSources:          visible,
+		HiddenSources:           hidden,
+		ConfiguredSourcesTotal:  configuredTotal,
+		DiscoveredSourcesVisible: discoveredVisible,
+		InternalSourcesHidden:   internalHidden,
+		DisabledSourcesHidden:   disabledHidden,
+		DirectSIEMSourcesHidden: directSIEMHidden,
+		ByGroup:                 byGroup,
+		BySourceType:            bySourceType,
+		ByZone:                  byZone,
+		BySeverity:              bySeverity,
+		ByCategory:              byCategory,
 	}
 }
 
@@ -418,6 +498,35 @@ func configuredZoneForType(sourceType string) string {
 	default:
 		return "DMZ"
 	}
+}
+
+func shouldIncludeSource(rec SourceRecord, opts VisibilityOptions) bool {
+	if opts.IncludeDisabled {
+		return true
+	}
+	if sourceutil.IsDirectSIEMSourceType(rec.SourceType) {
+		return opts.IncludeDirectSIEM
+	}
+	if isInternalSourceRecord(rec) {
+		return opts.IncludeInternal
+	}
+	if !rec.Enabled {
+		return false
+	}
+	return true
+}
+
+func isInternalSourceRecord(rec SourceRecord) bool {
+	if sourceutil.IsInternalDMZSourceType(rec.SourceType) {
+		return true
+	}
+	if rec.Group == "DMZ Services" {
+		return true
+	}
+	if sourceutil.IsPlaceholderSourceName(rec.Name) {
+		return true
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {

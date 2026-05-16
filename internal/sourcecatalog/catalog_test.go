@@ -22,7 +22,7 @@ func TestObserveEventNormalizesFirewallForSources(t *testing.T) {
 		Tags:          map[string]any{},
 	})
 
-	snap := c.Snapshot()
+	snap := c.Snapshot(VisibilityOptions{})
 	if snap.TotalSources != 1 {
 		t.Fatalf("expected 1 source, got %d", snap.TotalSources)
 	}
@@ -32,7 +32,7 @@ func TestObserveEventNormalizesFirewallForSources(t *testing.T) {
 	if snap.Sources[0].SourceType != "firewall" {
 		t.Fatalf("expected source_type firewall, got %q", snap.Sources[0].SourceType)
 	}
-	summary := c.Summary()
+	summary := c.Summary(VisibilityOptions{})
 	if summary.BySourceType["firewall"] != 1 {
 		t.Fatalf("expected firewall source_type summary count 1, got %#v", summary.BySourceType)
 	}
@@ -44,7 +44,13 @@ func TestObserveEventNormalizesFirewallForSources(t *testing.T) {
 func TestSeedConfiguredSourcesMapsDMZServices(t *testing.T) {
 	c := New("http://ot.example")
 	c.SeedConfiguredSources(config.DefaultSources())
-	snap := c.Snapshot()
+	defaultSnap := c.Snapshot(VisibilityOptions{})
+	for _, rec := range defaultSnap.Sources {
+		if rec.Name == "InfluxDB" || rec.Name == "OT Collector" {
+			t.Fatalf("did not expect internal source in default snapshot: %#v", rec)
+		}
+	}
+	snap := c.Snapshot(VisibilityOptions{IncludeInternal: true, IncludeDisabled: true, IncludeDirectSIEM: true})
 	var influx, collector SourceRecord
 	for _, rec := range snap.Sources {
 		switch rec.Name {
@@ -59,5 +65,9 @@ func TestSeedConfiguredSourcesMapsDMZServices(t *testing.T) {
 	}
 	if collector.SourceType != "collector" || collector.Group != "DMZ Services" || collector.Zone != "DMZ" {
 		t.Fatalf("unexpected OT Collector record: %#v", collector)
+	}
+	visible := c.Snapshot(VisibilityOptions{IncludeInternal: true, IncludeDisabled: true, IncludeDirectSIEM: true})
+	if visible.VisibleSources == 0 {
+		t.Fatal("expected visible sources when internal services are included")
 	}
 }
