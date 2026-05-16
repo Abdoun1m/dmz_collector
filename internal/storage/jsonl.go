@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/Abdoun1m/dmz_collector/internal/event"
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 )
 
 type EventQuery struct {
@@ -188,7 +189,7 @@ func (s *JSONLStore) LoadAll() ([]event.Event, error) {
 }
 
 func matches(e event.Event, q EventQuery) bool {
-	if q.SourceType != "" && !strings.EqualFold(e.SourceType, q.SourceType) {
+	if q.SourceType != "" && !strings.EqualFold(sourceutil.NormalizeSourceType(e.SourceType), sourceutil.NormalizeSourceType(q.SourceType)) {
 		return false
 	}
 	if q.Severity != "" && !strings.EqualFold(e.Severity, q.Severity) {

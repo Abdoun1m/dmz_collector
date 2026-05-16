@@ -121,11 +121,13 @@ func (c *Catalog) SetOTURL(otURL string) {
 func (c *Catalog) SeedConfiguredSources(items []config.SourceStatus) {
 	converted := make([]OTConfiguredSource, 0, len(items))
 	for _, item := range items {
+		canonicalType := sourceutil.NormalizeSourceType(item.Type)
 		converted = append(converted, OTConfiguredSource{
 			ID:             item.Type,
 			Name:           item.Name,
-			Type:           item.Type,
+			Type:           canonicalType,
 			IP:             item.Endpoint,
+			Zone:           configuredZoneForType(canonicalType),
 			Enabled:        item.Enabled,
 			ForwardEnabled: true,
 		})
@@ -152,12 +154,12 @@ func (c *Catalog) ObserveEvent(ev event.Event) bool {
 		}
 		c.seenEventIDs[ev.ID] = struct{}{}
 	}
-	key := sourceKey(ev.SourceType, ev.AssetIP, ev.Source, ev.AssetName, ev.ID)
+	key := sourceKey(ev.SourceType, ev.AssetIP, ev.ID)
 	state := c.ensureStateLocked(key)
 	canonicalType := sourceutil.NormalizeSourceType(ev.SourceType)
 	state.SourceKey = key
 	if state.ID == "" {
-		state.ID = firstNonEmpty(ev.Source, ev.AssetIP, ev.AssetName, ev.ID, key)
+		state.ID = firstNonEmpty(ev.ID, ev.Source, ev.AssetName, ev.AssetIP, key)
 	}
 	if state.Name == "" || !state.Configured {
 		state.Name = firstNonEmpty(ev.AssetName, ev.Source, ev.AssetIP, state.Name, state.ID)
@@ -289,7 +291,7 @@ func (c *Catalog) Detail(sourceType, assetIP string, limit int) (SourceDetail, b
 	if limit <= 0 {
 		limit = 50
 	}
-	key := sourceKey(sourceutil.NormalizeSourceType(sourceType), assetIP, "", "", "")
+	key := sourceKey(sourceutil.NormalizeSourceType(sourceType), assetIP, "")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	state, ok := c.records[key]
@@ -316,7 +318,7 @@ func (c *Catalog) Count() int {
 
 func (c *Catalog) mergeConfiguredLocked(item OTConfiguredSource) {
 	canonicalType := sourceutil.NormalizeSourceType(item.Type)
-	key := sourceKey(canonicalType, item.IP, item.ID, item.Name, item.Type)
+	key := sourceKey(canonicalType, item.IP, item.ID)
 	state := c.ensureStateLocked(key)
 	state.SourceKey = key
 	state.ID = firstNonEmpty(item.ID, state.ID, key)
@@ -393,10 +395,25 @@ func (s *sourceState) snapshot() SourceRecord {
 	return rec
 }
 
-func sourceKey(sourceType, assetIP, source, assetName, id string) string {
+func sourceKey(sourceType, assetIP, id string) string {
 	canonical := sourceutil.NormalizeSourceType(sourceType)
-	keyPart := firstNonEmpty(strings.TrimSpace(assetIP), strings.TrimSpace(source), strings.TrimSpace(assetName), strings.TrimSpace(id), "unknown")
+	keyPart := strings.TrimSpace(assetIP)
+	if keyPart == "" {
+		keyPart = strings.TrimSpace(id)
+	}
+	if keyPart == "" {
+		keyPart = "unknown"
+	}
 	return canonical + ":" + keyPart
+}
+
+func configuredZoneForType(sourceType string) string {
+	switch sourceutil.NormalizeSourceType(sourceType) {
+	case "influxdb", "opcua_gateway", "collector", "vault", "firewall", "ids":
+		return "DMZ"
+	default:
+		return "DMZ"
+	}
 }
 
 func firstNonEmpty(values ...string) string {

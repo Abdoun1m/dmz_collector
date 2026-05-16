@@ -17,10 +17,22 @@ func NormalizeSourceType(raw string) string {
 		return "plc"
 	case "opcua":
 		return "opcua"
+	case "opcua_gateway":
+		return "opcua_gateway"
 	case "ews":
 		return "ews"
 	case "ids":
 		return "ids"
+	case "influxdb":
+		return "influxdb"
+	case "ot_collector":
+		return "collector"
+	case "collector":
+		return "collector"
+	case "vault":
+		return "vault"
+	case "manual_test":
+		return "manual_test"
 	default:
 		return "unknown"
 	}
@@ -42,6 +54,8 @@ func GroupForSourceType(sourceType string) string {
 		return "Engineering Workstation"
 	case "ids":
 		return "IDS / Future Monitoring"
+	case "influxdb", "opcua_gateway", "collector", "vault":
+		return "DMZ Services"
 	default:
 		return "Unknown / Other"
 	}

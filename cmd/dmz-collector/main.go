@@ -25,6 +25,7 @@ import (
 	"github.com/Abdoun1m/dmz_collector/internal/ingest"
 	"github.com/Abdoun1m/dmz_collector/internal/normalizer"
 	"github.com/Abdoun1m/dmz_collector/internal/sourcecatalog"
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 	"github.com/Abdoun1m/dmz_collector/internal/stats"
 	"github.com/Abdoun1m/dmz_collector/internal/storage"
 	"github.com/Abdoun1m/dmz_collector/internal/vault"
@@ -97,6 +98,7 @@ func main() {
 	app.initSources()
 	app.loadSeenIDs()
 	app.bootstrapSourceCatalog()
+	app.syncOTMetadata(context.Background(), &http.Client{Timeout: 3 * time.Second})
 	app.bootstrapSpoolQueue()
 
 	_ = vault.New(cfg.Vault, logger).LoadSecrets()
@@ -254,9 +256,17 @@ func (a *App) SourcesSummary() map[string]any {
 }
 
 func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]any, bool) {
-	detail, ok := a.sourceCatalog.Detail(sourceType, assetIP, limit)
+	normalizedSourceType := sourceutil.NormalizeSourceType(sourceType)
+	detail, ok := a.sourceCatalog.Detail(normalizedSourceType, assetIP, limit)
 	if !ok {
 		return nil, false
+	}
+	recent, err := a.store.ReadFiltered(storage.EventQuery{Limit: limit, SourceType: normalizedSourceType, Asset: assetIP})
+	if err == nil {
+		detail.RecentEvents = make([]map[string]any, 0, len(recent))
+		for _, evt := range recent {
+			detail.RecentEvents = append(detail.RecentEvents, evt.ToMap())
+		}
 	}
 	return map[string]any{
 		"source":        detail.Source,
