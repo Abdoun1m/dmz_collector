@@ -105,3 +105,12 @@ func IsPlaceholderSourceName(name string) bool {
 	_, ok := placeholderNames[strings.ToLower(strings.TrimSpace(name))]
 	return ok
 }
+
+func IsSupportOnlySourceName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "firewall future", "ids future":
+		return true
+	default:
+		return false
+	}
+}

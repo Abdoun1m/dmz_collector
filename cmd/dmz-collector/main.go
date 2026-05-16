@@ -288,7 +288,42 @@ func (a *App) SourcesSummaryWithOptions(includeInternal, includeDisabled, includ
 }
 
 func (a *App) InternalSources() map[string]any {
-	return a.SourcesWithOptions(true, true, true)
+	a.refreshOTConfiguredSources()
+	snap := a.sourceCatalog.Snapshot(sourcecatalog.VisibilityOptions{
+		IncludeInternal:   true,
+		IncludeDisabled:   true,
+		IncludeDirectSIEM: false,
+	})
+	filtered := make([]sourcecatalog.SourceRecord, 0, len(snap.Sources))
+	configured := 0
+	discovered := 0
+	for _, rec := range snap.Sources {
+		if sourceutil.IsInternalDMZSourceType(rec.SourceType) || rec.Group == "DMZ Services" || sourceutil.IsSupportOnlySourceName(rec.Name) {
+			filtered = append(filtered, rec)
+			if rec.Configured {
+				configured++
+			}
+			if rec.Discovered {
+				discovered++
+			}
+		}
+	}
+	return map[string]any{
+		"generated_at":              snap.GeneratedAt,
+		"source_of_truth":           snap.SourceOfTruth,
+		"ot_collector_url":          snap.OTCollectorURL,
+		"visible_sources":           len(filtered),
+		"hidden_sources":            snap.TotalSources - len(filtered),
+		"configured_sources_total":   snap.ConfiguredSourcesTotal,
+		"discovered_sources_visible": snap.DiscoveredSourcesVisible,
+		"internal_sources_hidden":    snap.InternalSourcesHidden,
+		"disabled_sources_hidden":    snap.DisabledSourcesHidden,
+		"direct_siem_sources_hidden": snap.DirectSIEMSourcesHidden,
+		"total_sources":             len(filtered),
+		"configured_sources":        configured,
+		"discovered_sources":        discovered,
+		"sources":                   filtered,
+	}
 }
 
 func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]any, bool) {
@@ -315,35 +350,49 @@ func (a *App) refreshOTConfiguredSources() {
 	if strings.TrimSpace(a.cfg.OTBaseURL) == "" {
 		return
 	}
-	a.logger.Info("refreshing OT configured sources", "ot_pull_enabled", a.cfg.EnableOTPull, "ot_collector_url", a.cfg.OTBaseURL)
+	if a.logger != nil {
+		a.logger.Info("refreshing OT configured sources", "ot_pull_enabled", a.cfg.EnableOTPull, "ot_collector_url", a.cfg.OTBaseURL)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.OTBaseURL+"/config/sources", nil)
 	if err != nil {
-		a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		if a.logger != nil {
+			a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		}
 		return
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		if a.logger != nil {
+			a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		}
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		a.logger.Warn("ot_config_sources_fetch_error", "status", resp.Status)
+		if a.logger != nil {
+			a.logger.Warn("ot_config_sources_fetch_error", "status", resp.Status)
+		}
 		return
 	}
 	var rows []sourcecatalog.OTConfiguredSource
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&rows); err != nil {
-		a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		if a.logger != nil {
+			a.logger.Warn("ot_config_sources_fetch_error", "error", err)
+		}
 		return
 	}
-	a.logger.Info("ot_config_sources_count", "ot_config_sources_count", len(rows))
+	if a.logger != nil {
+		a.logger.Info("ot_config_sources_count", "ot_config_sources_count", len(rows))
+	}
 	a.sourceCatalog.MergeConfiguredSources(rows)
 	a.sourceCatalog.SetOTURL(a.cfg.OTBaseURL)
 	snap := a.sourceCatalog.Snapshot(sourcecatalog.VisibilityOptions{IncludeInternal: true, IncludeDisabled: true, IncludeDirectSIEM: true})
-	a.logger.Info("source merge result", "source_merge_configured_count", snap.ConfiguredSources, "source_merge_discovered_count", snap.DiscoveredSources)
+	if a.logger != nil {
+		a.logger.Info("source merge result", "source_merge_configured_count", snap.ConfiguredSources, "source_merge_discovered_count", snap.DiscoveredSources)
+	}
 }
 
 func (a *App) ForwardingStatus() config.ForwardingStatus {

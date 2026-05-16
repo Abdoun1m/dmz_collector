@@ -169,4 +169,47 @@ func TestSourcesSummaryConfiguredCounts(t *testing.T) {
 	if byGroup["PLCs"].ConfiguredCount != 5 {
 		t.Fatalf("expected PLCs configured count 5, got %#v", byGroup["PLCs"])
 	}
+	if _, ok := byGroup["DMZ Services"]; ok {
+		t.Fatalf("did not expect DMZ Services in default summary: %#v", byGroup["DMZ Services"])
+	}
+}
+
+func TestInternalSourcesOnlyExposeDMZSupportSources(t *testing.T) {
+	otServer := mockOTConfigServer(t, []sourcecatalog.OTConfiguredSource{
+		{ID: "plc1", Name: "PLC1", Type: "plc", IP: "192.168.1.20", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc2", Name: "PLC2", Type: "plc", IP: "192.168.1.21", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc3", Name: "PLC3", Type: "plc", IP: "192.168.1.22", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc4", Name: "PLC4", Type: "plc", IP: "192.168.1.23", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "plc5", Name: "PLC5", Type: "plc", IP: "192.168.1.24", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
+		{ID: "fuxa1", Name: "FUXA SCADA", Type: "scada", IP: "192.168.1.40", Protocol: "http", Impact: "medium", Zone: "L2", Enabled: true, ForwardEnabled: true},
+		{ID: "opcua1", Name: "OPC UA Server", Type: "opcua", IP: "192.168.1.50", Protocol: "opcua", Impact: "medium", Zone: "L2", Enabled: true, ForwardEnabled: true},
+		{ID: "gds1", Name: "OT GDS Agent", Type: "gds-agent", IP: "192.168.1.30", Protocol: "http", Impact: "high", Zone: "OT", Enabled: true, ForwardEnabled: true},
+		{ID: "ews1", Name: "EWS", Type: "ews", IP: "192.168.1.60", Protocol: "syslog", Impact: "medium", Zone: "L2", Enabled: true, ForwardEnabled: true},
+		{ID: "fw1", Name: "OPNsense OT Firewall", Type: "firewall", IP: "192.168.1.254", Protocol: "syslog", Impact: "high", Zone: "OT", Enabled: true, ForwardEnabled: true},
+		{ID: "idsfuture", Name: "Future IDS", Type: "ids", IP: "192.168.1.70", Protocol: "syslog", Impact: "high", Zone: "DMZ", Enabled: true, ForwardEnabled: true},
+	})
+	defer otServer.Close()
+
+	app := newTestApp(t)
+	app.cfg.OTBaseURL = otServer.URL
+	app.sourceCatalog.SetOTURL(otServer.URL)
+	app.initSources()
+	internal := app.InternalSources()
+	items := internal["sources"].([]sourcecatalog.SourceRecord)
+	if len(items) == 0 {
+		t.Fatal("expected internal sources")
+	}
+	for _, item := range items {
+		switch item.Name {
+		case "OT Collector", "InfluxDB", "OPC UA DMZ Gateway", "Vault", "Firewall Future", "IDS Future":
+		default:
+			t.Fatalf("unexpected record in internal sources: %#v", item)
+		}
+		if item.Name == "PLC1" || item.Name == "PLC2" || item.Name == "PLC3" || item.Name == "PLC4" || item.Name == "PLC5" || item.Name == "OPNsense OT Firewall" || item.Name == "OT GDS Agent" || item.Name == "OPC UA Server" || item.Name == "EWS" || item.Name == "FUXA SCADA" {
+			t.Fatalf("unexpected operational source in internal sources: %#v", item)
+		}
+	}
+	if _, ok := internal["sources"].([]sourcecatalog.SourceRecord); !ok {
+		t.Fatal("expected source list in internal sources response")
+	}
 }
