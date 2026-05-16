@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 )
 
 type Event struct {
@@ -69,6 +71,7 @@ func ParseOne(raw []byte) (Event, error) {
 		ExtraFields:   map[string]any{},
 		OriginalRaw:   append(json.RawMessage(nil), raw...),
 	}
+	e.SourceType = sourceutil.NormalizeSourceType(e.SourceType)
 
 	if tags, ok := m["tags"].(map[string]any); ok {
 		e.Tags = tags

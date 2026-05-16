@@ -3,6 +3,8 @@ package event
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 )
 
 type SplunkPayload struct {
@@ -27,9 +29,9 @@ func BuildSplunkPayload(evt Event, source string, defaultIndex string) SplunkPay
 			index = s
 		}
 	}
-	sourcetype := "labshock:ot:unknown"
+	sourcetype := sourceutil.SplunkSourcetypeFor(evt.SourceType)
 	if v, ok := evt.Tags["splunk_sourcetype"]; ok {
-		if s, ok := v.(string); ok && s != "" {
+		if s, ok := v.(string); ok && s != "" && s != "labshock:ot:unknown" {
 			sourcetype = s
 		}
 	}

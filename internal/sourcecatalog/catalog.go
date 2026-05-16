@@ -8,6 +8,7 @@ import (
 
 	"github.com/Abdoun1m/dmz_collector/internal/config"
 	"github.com/Abdoun1m/dmz_collector/internal/event"
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 )
 
 type OTConfiguredSource struct {
@@ -144,6 +145,7 @@ func (c *Catalog) MergeConfiguredSources(items []OTConfiguredSource) {
 func (c *Catalog) ObserveEvent(ev event.Event) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	ev.SourceType = sourceutil.NormalizeSourceType(ev.SourceType)
 	if ev.ID != "" {
 		if _, exists := c.seenEventIDs[ev.ID]; exists {
 			return false
@@ -152,10 +154,7 @@ func (c *Catalog) ObserveEvent(ev event.Event) bool {
 	}
 	key := sourceKey(ev.SourceType, ev.AssetIP, ev.Source, ev.AssetName, ev.ID)
 	state := c.ensureStateLocked(key)
-	canonicalType := NormalizeSourceType(ev.SourceType)
-	if canonicalType == "unknown" && strings.TrimSpace(ev.SourceType) != "" {
-		canonicalType = strings.ToLower(strings.TrimSpace(ev.SourceType))
-	}
+	canonicalType := sourceutil.NormalizeSourceType(ev.SourceType)
 	state.SourceKey = key
 	if state.ID == "" {
 		state.ID = firstNonEmpty(ev.Source, ev.AssetIP, ev.AssetName, ev.ID, key)
@@ -192,13 +191,24 @@ func (c *Catalog) ObserveEvent(ev event.Event) bool {
 	if hint, ok := ev.Tags["siem_index_hint"].(string); ok && strings.TrimSpace(hint) != "" {
 		h := strings.TrimSpace(hint)
 		state.SIEMIndexHint = &h
+	} else if canonicalType == "firewall" {
+		h := "ot_security"
+		state.SIEMIndexHint = &h
 	}
 	if sc, ok := ev.Tags["splunk_sourcetype"].(string); ok && strings.TrimSpace(sc) != "" {
 		s := strings.TrimSpace(sc)
+		if !strings.EqualFold(s, "labshock:ot:unknown") {
+			state.SplunkSourcetype = &s
+		} else {
+			s := sourceutil.SplunkSourcetypeFor(canonicalType)
+			state.SplunkSourcetype = &s
+		}
+	} else {
+		s := sourceutil.SplunkSourcetypeFor(canonicalType)
 		state.SplunkSourcetype = &s
 	}
 	state.LastEvent = redactEventForUI(ev)
-	state.Group = GroupForSourceType(canonicalType)
+	state.Group = sourceutil.GroupForSourceType(canonicalType)
 	state.Discovered = true
 	c.generatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return true
@@ -279,7 +289,7 @@ func (c *Catalog) Detail(sourceType, assetIP string, limit int) (SourceDetail, b
 	if limit <= 0 {
 		limit = 50
 	}
-	key := sourceKey(sourceType, assetIP, "", "", "")
+	key := sourceKey(sourceutil.NormalizeSourceType(sourceType), assetIP, "", "", "")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	state, ok := c.records[key]
@@ -305,10 +315,7 @@ func (c *Catalog) Count() int {
 }
 
 func (c *Catalog) mergeConfiguredLocked(item OTConfiguredSource) {
-	canonicalType := NormalizeSourceType(item.Type)
-	if canonicalType == "unknown" {
-		canonicalType = strings.ToLower(strings.TrimSpace(item.Type))
-	}
+	canonicalType := sourceutil.NormalizeSourceType(item.Type)
 	key := sourceKey(canonicalType, item.IP, item.ID, item.Name, item.Type)
 	state := c.ensureStateLocked(key)
 	state.SourceKey = key
@@ -324,7 +331,7 @@ func (c *Catalog) mergeConfiguredLocked(item OTConfiguredSource) {
 	state.ForwardEnabled = item.ForwardEnabled
 	state.Configured = true
 	if state.Group == "" {
-		state.Group = GroupForSourceType(canonicalType)
+		state.Group = sourceutil.GroupForSourceType(canonicalType)
 	}
 	if state.SeverityCounts == nil {
 		state.SeverityCounts = map[string]int64{}
@@ -353,7 +360,7 @@ func (c *Catalog) ensureStateLocked(key string) *sourceState {
 			SeverityCounts:  map[string]int64{},
 			CategoryCounts:  map[string]int64{},
 			TopMessages:     []TopMessage{},
-			Group:           GroupForSourceType(strings.SplitN(key, ":", 2)[0]),
+			Group:           sourceutil.GroupForSourceType(strings.SplitN(key, ":", 2)[0]),
 		},
 		messageCounts: map[string]int64{},
 	}
@@ -386,54 +393,8 @@ func (s *sourceState) snapshot() SourceRecord {
 	return rec
 }
 
-func NormalizeSourceType(sourceType string) string {
-	switch strings.ToLower(strings.TrimSpace(sourceType)) {
-	case "gds-agent", "gds_agent":
-		return "gds_agent"
-	case "opnsense", "firewall":
-		return "firewall"
-	case "fuxa", "fuxa-ui", "scada":
-		return "scada"
-	case "plc":
-		return "plc"
-	case "opcua":
-		return "opcua"
-	case "ews":
-		return "ews"
-	case "ids":
-		return "ids"
-	case "manual_test":
-		return "manual_test"
-	case "":
-		return "unknown"
-	default:
-		return "unknown"
-	}
-}
-
-func GroupForSourceType(sourceType string) string {
-	switch NormalizeSourceType(sourceType) {
-	case "firewall":
-		return "Firewall"
-	case "plc":
-		return "PLCs"
-	case "scada":
-		return "SCADA / FUXA"
-	case "opcua":
-		return "OPC UA"
-	case "gds_agent":
-		return "GDS / PKI"
-	case "ews":
-		return "Engineering Workstation"
-	case "ids":
-		return "IDS / Future Monitoring"
-	default:
-		return "Unknown / Other"
-	}
-}
-
 func sourceKey(sourceType, assetIP, source, assetName, id string) string {
-	canonical := NormalizeSourceType(sourceType)
+	canonical := sourceutil.NormalizeSourceType(sourceType)
 	keyPart := firstNonEmpty(strings.TrimSpace(assetIP), strings.TrimSpace(source), strings.TrimSpace(assetName), strings.TrimSpace(id), "unknown")
 	return canonical + ":" + keyPart
 }

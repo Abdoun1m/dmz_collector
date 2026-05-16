@@ -145,18 +145,17 @@ function sourceCard(source) {
 }
 
 function renderDashboard() {
-  const s = state.stats || {};
   const ss = state.statsSummary || {};
   const q = state.queue || {};
   const kpis = [
-    ["Total Events", s.total_events || 0],
-    ["Sources", s.source_count || 0],
+    ["Total Events", ss.total_events || 0],
+    ["Sources", ss.source_count || 0],
     ["Queued", q.queued || 0],
     ["Forwarded", q.forwarded || 0],
     ["Failed", q.failed || 0],
     ["Critical", ss.critical_count || 0],
     ["Warning", ss.warning_count || 0],
-    ["Latest Event", safe(s.latest_event_timestamp)],
+    ["Latest Event", safe(ss.latest_event_timestamp)],
   ];
   document.getElementById("tab-dashboard").innerHTML = `
     <div class="grid">

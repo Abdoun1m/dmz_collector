@@ -168,6 +168,7 @@ Notes:
 Common issues:
 
 - `non-2xx` from `/events`: validate token/header mismatch.
+- `GET /stats` returns `404` on a deployed system: that binary is older than this repo state. Use `GET /stats/summary` as the canonical stats endpoint until the service is rebuilt and redeployed.
 - Events accepted but not forwarded: check `/forwarding/status`, queue pause flag, and HEC URL/token.
 - Splunk down: expected queue growth with spool persistence.
 - Duplicate OT events with same `id`: deduplicated by design.

@@ -2,10 +2,12 @@ package stats
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Abdoun1m/dmz_collector/internal/event"
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 )
 
 type SourceInfo struct {
@@ -51,13 +53,18 @@ func New() *Stats {
 func (s *Stats) Add(e event.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	e.SourceType = sourceutil.NormalizeSourceType(e.SourceType)
+	sourcetype := sourceutil.SplunkSourcetypeFor(e.SourceType)
+	if v, ok := e.Tags["splunk_sourcetype"].(string); ok {
+		if trimmed := strings.TrimSpace(v); trimmed != "" && !strings.EqualFold(trimmed, "labshock:ot:unknown") {
+			sourcetype = trimmed
+		}
+	}
 	s.totalReceived++
 	s.bySource[e.SourceType]++
 	s.bySeverity[e.Severity]++
 	s.byCategory[e.EventCategory]++
-	if v, ok := e.Tags["splunk_sourcetype"].(string); ok {
-		s.bySourcetype[v]++
-	}
+	s.bySourcetype[sourcetype]++
 	s.byAsset[e.AssetName]++
 	s.timeline[bucket(e.ReceivedAt)]++
 	if e.EventCategory == "security" {

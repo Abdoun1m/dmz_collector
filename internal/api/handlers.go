@@ -153,10 +153,6 @@ func (a *API) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if strings.TrimSpace(r.URL.Path) == "/stats" {
-		ingest.WriteJSON(w, http.StatusOK, a.core.Stats())
-		return
-	}
 	ingest.WriteJSON(w, http.StatusOK, a.core.StatsSummary())
 }
 

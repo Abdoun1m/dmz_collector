@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Abdoun1m/dmz_collector/internal/event"
+	"github.com/Abdoun1m/dmz_collector/internal/sourceutil"
 )
 
 func EnrichDMZ(e event.Event) event.Event {
@@ -14,7 +15,9 @@ func EnrichDMZ(e event.Event) event.Event {
 	e.Tags["dmz_collector"] = "dmz_collector"
 	e.Tags["dmz_received_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	e.Tags["purdue_zone"] = inferPurdueZone(e)
-	e.Tags["splunk_sourcetype"] = sourcetypeFor(e.SourceType)
+	if current, ok := e.Tags["splunk_sourcetype"].(string); !ok || strings.TrimSpace(current) == "" || strings.EqualFold(strings.TrimSpace(current), "labshock:ot:unknown") {
+		e.Tags["splunk_sourcetype"] = sourceutil.SplunkSourcetypeFor(e.SourceType)
+	}
 	e.Tags["siem_index_hint"] = indexHintFor(e)
 	if isHighValue(e) {
 		e.Tags["high_value"] = true
@@ -34,26 +37,6 @@ func inferPurdueZone(e event.Event) string {
 		return "ot"
 	}
 }
-
-func sourcetypeFor(sourceType string) string {
-	switch strings.ToLower(sourceType) {
-	case "plc":
-		return "labshock:ot:plc"
-	case "scada":
-		return "labshock:ot:scada"
-	case "opcua":
-		return "labshock:ot:opcua"
-	case "ews":
-		return "labshock:ot:ews"
-	case "firewall":
-		return "labshock:net:firewall"
-	case "ids":
-		return "labshock:ids:alert"
-	default:
-		return "labshock:ot:unknown"
-	}
-}
-
 func indexHintFor(e event.Event) string {
 	st := strings.ToLower(e.SourceType)
 	cat := strings.ToLower(e.EventCategory)
