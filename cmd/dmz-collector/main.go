@@ -51,6 +51,12 @@ type App struct {
 	seenIDs       map[string]struct{}
 	inflight      map[string]struct{}
 	offsetByID    map[string]int64
+	splunkSuccessCount int64
+	splunkFailedCount  int64
+	splunkLastSuccessAt string
+	splunkLastFailureAt string
+	splunkLastError     string
+	splunkLastEventID   string
 	lastHECStatus string
 	lastHECError  string
 	failedBatches int64
@@ -185,6 +191,7 @@ func (a *App) ingestOne(evt event.Event) (bool, bool, error) {
 	a.stats.Add(ev)
 	a.observeSourceEvent(ev)
 	a.streamHub.Publish(ev)
+	a.dispatchSplunkForward(ev)
 
 	queued := false
 	if a.isForwardingEnabled() {
@@ -202,6 +209,7 @@ func (a *App) ReadEventByID(id string) (event.Event, bool, error) {
 }
 
 func (a *App) StatsSummary() map[string]any {
+	splunk := a.splunkStats()
 	return map[string]any{
 		"total_events":            a.stats.TotalReceived(),
 		"source_count":            a.sourceCatalog.Count(),
@@ -209,10 +217,19 @@ func (a *App) StatsSummary() map[string]any {
 		"warning_count":           a.stats.SeverityCount("warning"),
 		"latest_event_timestamp":  a.stats.LatestEventTimestamp(),
 		"queue":                   a.QueueStatus(),
+		"splunk_enabled":          splunk["splunk_enabled"],
+		"splunk_hec_url":          splunk["splunk_hec_url"],
+		"splunk_success_count":    splunk["splunk_success_count"],
+		"splunk_failed_count":     splunk["splunk_failed_count"],
+		"splunk_last_success_at":   splunk["splunk_last_success_at"],
+		"splunk_last_failure_at":   splunk["splunk_last_failure_at"],
+		"splunk_last_error":       splunk["splunk_last_error"],
+		"splunk_last_event_id":    splunk["splunk_last_event_id"],
 	}
 }
 
 func (a *App) Stats() map[string]any {
+	splunk := a.splunkStats()
 	return map[string]any{
 		"service":                a.cfg.ServiceName,
 		"status":                 "ok",
@@ -223,6 +240,14 @@ func (a *App) Stats() map[string]any {
 		"total_events":           a.stats.TotalReceived(),
 		"source_count":           a.sourceCatalog.Count(),
 		"latest_event_timestamp": a.stats.LatestEventTimestamp(),
+		"splunk_enabled":         splunk["splunk_enabled"],
+		"splunk_hec_url":         splunk["splunk_hec_url"],
+		"splunk_success_count":   splunk["splunk_success_count"],
+		"splunk_failed_count":    splunk["splunk_failed_count"],
+		"splunk_last_success_at":  splunk["splunk_last_success_at"],
+		"splunk_last_failure_at":  splunk["splunk_last_failure_at"],
+		"splunk_last_error":      splunk["splunk_last_error"],
+		"splunk_last_event_id":   splunk["splunk_last_event_id"],
 	}
 }
 
@@ -448,6 +473,50 @@ func (a *App) TestForwarding() (map[string]any, error) {
 	return map[string]any{"ok": true, "status": a.lastHECStatus}, nil
 }
 
+func (a *App) TestSplunk() (map[string]any, error) {
+	cfg := a.cfg.Splunk
+	if !cfg.Enabled {
+		return map[string]any{
+			"status":         "failed",
+			"http_status":    0,
+			"splunk_response": "",
+			"error":          "splunk hec is disabled",
+		}, nil
+	}
+	test := event.Event{
+		ID:            "dmz-splunk-test",
+		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
+		ReceivedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		Zone:          "DMZ",
+		Source:        cfg.Source,
+		SourceType:    "gds-agent",
+		AssetName:     "dmz_collector",
+		AssetIP:       "192.168.10.70",
+		Severity:      "info",
+		Protocol:      "http",
+		EventCategory: "system",
+		Message:       "dmz splunk hec test",
+		Raw:           "{}",
+		Tags:          map[string]any{},
+	}
+	test = normalizer.EnrichDMZ(test)
+	result, err := a.splunkForwarder().Send(cfg.URL, cfg.Token, cfg.Source, cfg.Index, test)
+	if err != nil {
+		return map[string]any{
+			"status":         "failed",
+			"http_status":    result.StatusCode,
+			"splunk_response": result.Body,
+			"error":          err.Error(),
+		}, nil
+	}
+	return map[string]any{
+		"status":         "ok",
+		"http_status":    result.StatusCode,
+		"splunk_response": result.Body,
+		"error":          "",
+	}, nil
+}
+
 func (a *App) FlushForwarding() map[string]any {
 	n := a.enqueuePendingFromSpool()
 	return map[string]any{"ok": true, "enqueued": n}
@@ -499,7 +568,7 @@ func (a *App) runForwardWorker(ctx context.Context) {
 			}
 		}
 
-		if cfg.Paused || (!cfg.SplunkEnabled && !cfg.SyslogForwardEnabled) {
+		if cfg.Paused || !cfg.SyslogForwardEnabled {
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -531,16 +600,6 @@ func (a *App) runForwardWorker(ctx context.Context) {
 }
 
 func (a *App) forwardBatch(batch []event.Event, cfg config.ForwardingConfig) error {
-	if cfg.SplunkEnabled {
-		status, err := a.splunkFwd.SendBatch(cfg.SplunkHECURL, cfg.SplunkHECToken, cfg.SplunkSource, cfg.SplunkIndex, batch)
-		a.mu.Lock()
-		a.lastHECStatus = status
-		a.lastHECError = ""
-		a.mu.Unlock()
-		if err != nil {
-			return err
-		}
-	}
 	if cfg.SyslogForwardEnabled {
 		for _, e := range batch {
 			if err := a.syslogFwd.Send(cfg.SyslogForwardHost, cfg.SyslogForwardPort, cfg.SyslogForwardProtocol, e); err != nil {
@@ -700,7 +759,7 @@ func (a *App) forgetInflight(batch []event.Event) {
 
 func (a *App) isForwardingEnabled() bool {
 	cfg := a.fwdStore.Get()
-	return !cfg.Paused && (cfg.SplunkEnabled || cfg.SyslogForwardEnabled)
+	return !cfg.Paused && cfg.SyslogForwardEnabled
 }
 
 func (a *App) loadSeenIDs() {
@@ -756,6 +815,91 @@ func (a *App) updateSourceFromEvent(e event.Event) {
 		src.Endpoint = e.AssetIP
 	}
 	a.sources[key] = src
+}
+
+func (a *App) splunkStats() map[string]any {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return map[string]any{
+		"splunk_enabled":         a.cfg.Splunk.Enabled,
+		"splunk_hec_url":         a.cfg.Splunk.URL,
+		"splunk_success_count":   a.splunkSuccessCount,
+		"splunk_failed_count":    a.splunkFailedCount,
+		"splunk_last_success_at": a.splunkLastSuccessAt,
+		"splunk_last_failure_at": a.splunkLastFailureAt,
+		"splunk_last_error":      a.splunkLastError,
+		"splunk_last_event_id":   a.splunkLastEventID,
+	}
+}
+
+func (a *App) dispatchSplunkForward(ev event.Event) {
+	if !a.cfg.Splunk.Enabled {
+		return
+	}
+	go a.forwardSplunkAsync(ev)
+}
+
+func (a *App) forwardSplunkAsync(ev event.Event) {
+	cfg := a.cfg.Splunk
+	payload := event.BuildSplunkPayload(ev, cfg.Source, cfg.Index)
+	start := time.Now()
+	result, err := a.splunkForwarder().Send(cfg.URL, cfg.Token, cfg.Source, cfg.Index, ev)
+	elapsed := time.Since(start).Milliseconds()
+	success := err == nil
+	a.recordSplunkAttempt(ev.ID, success, result.StatusCode, result.Body, err)
+	if a.logger == nil {
+		return
+	}
+	fields := []any{
+		"event_id", ev.ID,
+		"source_type", ev.SourceType,
+		"splunk_enabled", cfg.Enabled,
+		"splunk_hec_url", cfg.URL,
+		"splunk_index", cfg.Index,
+		"splunk_sourcetype", payload.Sourcetype,
+		"splunk_attempted", true,
+		"splunk_success", success,
+		"http_status", result.StatusCode,
+		"error", err,
+		"elapsed_ms", elapsed,
+	}
+	if success {
+		a.logger.Info("splunk_hec_forward", fields...)
+		return
+	}
+	a.logger.Warn("splunk_hec_forward", fields...)
+}
+
+func (a *App) recordSplunkAttempt(eventID string, success bool, httpStatus int, responseBody string, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.splunkLastEventID = eventID
+	if success {
+		a.splunkSuccessCount++
+		a.splunkLastSuccessAt = time.Now().UTC().Format(time.RFC3339Nano)
+		a.splunkLastError = ""
+		return
+	}
+	a.splunkFailedCount++
+	a.splunkLastFailureAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err != nil {
+		a.splunkLastError = err.Error()
+		return
+	}
+	if responseBody != "" {
+		a.splunkLastError = responseBody
+		return
+	}
+	if httpStatus > 0 {
+		a.splunkLastError = "splunk status " + strconv.Itoa(httpStatus)
+	}
+}
+
+func (a *App) splunkForwarder() *forwarder.SplunkHECForwarder {
+	if a.splunkFwd != nil {
+		return a.splunkFwd
+	}
+	return forwarder.NewSplunkHECForwarder(a.cfg.Splunk.VerifyTLS, 5*time.Second)
 }
 
 func (a *App) observeSourceEvent(e event.Event) {

@@ -53,6 +53,24 @@ func (a *API) handleEventsIngest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *API) handleSplunkTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	result, err := a.core.TestSplunk()
+	if err != nil {
+		ingest.WriteJSON(w, http.StatusBadGateway, map[string]any{
+			"status":         "failed",
+			"http_status":    0,
+			"splunk_response": "",
+			"error":          err.Error(),
+		})
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, result)
+}
+
 func (a *API) handleConfigRules(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

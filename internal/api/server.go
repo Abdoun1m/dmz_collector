@@ -32,6 +32,7 @@ type Core interface {
 	ForwardingConfig() config.ForwardingConfig
 	UpdateForwardingConfig(config.ForwardingConfig) error
 	TestForwarding() (map[string]any, error)
+	TestSplunk() (map[string]any, error)
 	FlushForwarding() map[string]any
 	QueueStatus() map[string]any
 	Health() map[string]any
@@ -71,6 +72,7 @@ func (a *API) Run(ctx context.Context) error {
 	mux.HandleFunc("/config/rules", a.handleConfigRules)
 	mux.HandleFunc("/filter/config", a.handleFilterConfig)
 	mux.HandleFunc("/forwarding/test", a.handleForwardingTest)
+	mux.HandleFunc("/splunk/test", a.handleSplunkTest)
 	mux.HandleFunc("/forwarding/flush", a.handleForwardingFlush)
 	mux.HandleFunc("/queue/status", a.handleQueueStatus)
 	mux.HandleFunc("/ids/alerts", auth.RequireBearer(a.ingestToken, a.handleIDSAlerts))

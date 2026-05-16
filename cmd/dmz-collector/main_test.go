@@ -6,12 +6,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/Abdoun1m/dmz_collector/internal/api"
 	"github.com/Abdoun1m/dmz_collector/internal/config"
 	"github.com/Abdoun1m/dmz_collector/internal/event"
+	"github.com/Abdoun1m/dmz_collector/internal/forwarder"
 	"github.com/Abdoun1m/dmz_collector/internal/sourcecatalog"
+	"github.com/Abdoun1m/dmz_collector/internal/stats"
 	"github.com/Abdoun1m/dmz_collector/internal/storage"
 )
 
@@ -20,12 +24,56 @@ func newTestApp(t *testing.T) *App {
 	base := t.TempDir()
 	store := storage.NewJSONLStore(filepath.Join(base, "events.jsonl"))
 	app := &App{
-		cfg: config.Config{},
-		store: store,
-		stats: nil,
+		cfg:           config.Config{},
+		store:         store,
+		stats:         stats.New(),
+		streamHub:     api.NewStreamHub(),
+		splunkFwd:     forwarder.NewSplunkHECForwarder(false, 2*time.Second),
 		sourceCatalog: sourcecatalog.New("http://ot.example"),
 	}
 	return app
+}
+
+type hecCapture struct {
+	mu      sync.Mutex
+	bodies  []map[string]any
+	requests int
+}
+
+func newMockHECServer(t *testing.T, status int) (*httptest.Server, *hecCapture) {
+	t.Helper()
+	capture := &hecCapture{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capture.mu.Lock()
+		defer capture.mu.Unlock()
+		capture.requests++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		capture.bodies = append(capture.bodies, body)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"text": "Success", "code": 0})
+	}))
+	return server, capture
+}
+
+func waitForRequests(t *testing.T, capture *hecCapture, want int, timeout time.Duration) []map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		capture.mu.Lock()
+		requests := capture.requests
+		bodies := append([]map[string]any(nil), capture.bodies...)
+		capture.mu.Unlock()
+		if requests >= want {
+			return bodies
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	capture.mu.Lock()
+	bodies := append([]map[string]any(nil), capture.bodies...)
+	capture.mu.Unlock()
+	t.Fatalf("timed out waiting for %d hec requests", want)
+	return bodies
 }
 
 
@@ -211,5 +259,170 @@ func TestInternalSourcesOnlyExposeDMZSupportSources(t *testing.T) {
 	}
 	if _, ok := internal["sources"].([]sourcecatalog.SourceRecord); !ok {
 		t.Fatal("expected source list in internal sources response")
+	}
+}
+
+func TestIngestStoresLocallyWithoutSplunk(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.Splunk = config.SplunkConfig{Enabled: false, URL: "http://127.0.0.1:65535/services/collector", Token: "test", Index: "ot_security", Source: "labshock_dmz_collector", VerifyTLS: false}
+	app.streamHub = api.NewStreamHub()
+	evt := event.Event{
+		ID:            "no-splunk-1",
+		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
+		ReceivedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		SourceType:    "gds-agent",
+		AssetIP:       "192.168.1.30",
+		AssetName:     "OT GDS Agent",
+		Severity:      "warning",
+		EventCategory: "security",
+		Message:       "local only",
+		Tags:          map[string]any{"splunk_sourcetype": "labshock:ot:gds"},
+	}
+	if err := app.IngestSingle(evt); err != nil {
+		t.Fatalf("ingest failed: %v", err)
+	}
+	stored, err := app.ReadEvents(storage.EventQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("failed to read stored events: %v", err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("expected one stored event, got %d", len(stored))
+	}
+	if got := app.StatsSummary()["splunk_success_count"].(int64); got != 0 {
+		t.Fatalf("expected no splunk sends, got %d", got)
+	}
+	if got := app.StatsSummary()["splunk_failed_count"].(int64); got != 0 {
+		t.Fatalf("expected no splunk failures, got %d", got)
+	}
+}
+
+func TestIngestForwardsToSplunkAsync(t *testing.T) {
+	hecServer, capture := newMockHECServer(t, http.StatusOK)
+	defer hecServer.Close()
+
+	app := newTestApp(t)
+	app.cfg.Splunk = config.SplunkConfig{Enabled: true, URL: hecServer.URL, Token: "11111111-2222-3333-4444-555555555555", Index: "ot_security", Source: "labshock_dmz_collector", VerifyTLS: false}
+	app.streamHub = api.NewStreamHub()
+	evt := event.Event{
+		ID:            "splunk-async-1",
+		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
+		ReceivedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		SourceType:    "gds-agent",
+		AssetIP:       "192.168.1.30",
+		AssetName:     "OT GDS Agent",
+		Severity:      "warning",
+		EventCategory: "security",
+		Message:       "forward to splunk",
+		Tags:          map[string]any{"splunk_sourcetype": "labshock:ot:gds"},
+	}
+	if err := app.IngestSingle(evt); err != nil {
+		t.Fatalf("ingest failed: %v", err)
+	}
+	bodies := waitForRequests(t, capture, 1, 3*time.Second)
+	if len(bodies) != 1 {
+		t.Fatalf("expected one hec payload, got %d", len(bodies))
+	}
+	payload := bodies[0]
+	if payload["index"] != "ot_security" {
+		t.Fatalf("expected ot_security index, got %#v", payload["index"])
+	}
+	if payload["sourcetype"] != "labshock:ot:gds" {
+		t.Fatalf("expected labshock:ot:gds sourcetype, got %#v", payload["sourcetype"])
+	}
+	eventBody, ok := payload["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected event object, got %#v", payload["event"])
+	}
+	if eventBody["id"] != "splunk-async-1" || eventBody["source_type"] != "gds_agent" || eventBody["asset_ip"] != "192.168.1.30" || eventBody["message"] != "forward to splunk" {
+		t.Fatalf("unexpected event body: %#v", eventBody)
+	}
+	statsSummary := app.StatsSummary()
+	if got := statsSummary["splunk_success_count"].(int64); got != 1 {
+		t.Fatalf("expected one splunk success, got %d", got)
+	}
+	if got := statsSummary["splunk_failed_count"].(int64); got != 0 {
+		t.Fatalf("expected zero splunk failures, got %d", got)
+	}
+}
+
+func TestIngestRecordsSplunkFailure(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.Splunk = config.SplunkConfig{Enabled: true, URL: "http://127.0.0.1:65534/services/collector", Token: "test", Index: "ot_security", Source: "labshock_dmz_collector", VerifyTLS: false}
+	app.streamHub = api.NewStreamHub()
+	evt := event.Event{
+		ID:            "splunk-fail-1",
+		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
+		ReceivedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		SourceType:    "firewall",
+		AssetIP:       "192.168.10.1",
+		AssetName:     "OPNsense OT Firewall",
+		Severity:      "warning",
+		EventCategory: "security",
+		Message:       "forward failure",
+		Tags:          map[string]any{"splunk_sourcetype": "labshock:net:firewall"},
+	}
+	if err := app.IngestSingle(evt); err != nil {
+		t.Fatalf("ingest failed: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if app.StatsSummary()["splunk_failed_count"].(int64) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	statsSummary := app.StatsSummary()
+	if got := statsSummary["splunk_failed_count"].(int64); got != 1 {
+		t.Fatalf("expected one splunk failure, got %d", got)
+	}
+	if got := statsSummary["splunk_last_error"].(string); got == "" {
+		t.Fatalf("expected last splunk error to be recorded, got empty string")
+	}
+	if got := statsSummary["splunk_last_event_id"].(string); got != "splunk-fail-1" {
+		t.Fatalf("expected last splunk event id, got %q", got)
+	}
+}
+
+func TestInternalPayloadSourcetypesStayCanonical(t *testing.T) {
+	hecServer, capture := newMockHECServer(t, http.StatusOK)
+	defer hecServer.Close()
+
+	app := newTestApp(t)
+	app.cfg.Splunk = config.SplunkConfig{Enabled: true, URL: hecServer.URL, Token: "test", Index: "ot_security", Source: "labshock_dmz_collector", VerifyTLS: false}
+	app.streamHub = api.NewStreamHub()
+	tests := []struct {
+		name         string
+		event        event.Event
+		expectedType string
+	}{
+		{
+			name: "firewall",
+			event: event.Event{ID: "fw-1", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceType: "opnsense", AssetIP: "192.168.10.1", AssetName: "OPNsense OT Firewall", Severity: "warning", EventCategory: "security", Message: "fw", Tags: map[string]any{"splunk_sourcetype": "labshock:net:firewall"}},
+			expectedType: "labshock:net:firewall",
+		},
+		{
+			name: "gds",
+			event: event.Event{ID: "gds-1", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceType: "gds-agent", AssetIP: "192.168.1.30", AssetName: "OT GDS Agent", Severity: "warning", EventCategory: "security", Message: "gds", Tags: map[string]any{"splunk_sourcetype": "labshock:ot:gds"}},
+			expectedType: "labshock:ot:gds",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			capture.mu.Lock()
+			capture.requests = 0
+			capture.bodies = nil
+			capture.mu.Unlock()
+			if err := app.IngestSingle(tt.event); err != nil {
+				t.Fatalf("ingest failed: %v", err)
+			}
+			bodies := waitForRequests(t, capture, 1, 3*time.Second)
+			payload := bodies[0]
+			if payload["index"] != "ot_security" {
+				t.Fatalf("expected ot_security index, got %#v", payload["index"])
+			}
+			if payload["sourcetype"] != tt.expectedType {
+				t.Fatalf("expected %s sourcetype, got %#v", tt.expectedType, payload["sourcetype"])
+			}
+		})
 	}
 }

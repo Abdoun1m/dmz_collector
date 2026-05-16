@@ -40,6 +40,7 @@ func (statsCoreStub) ForwardingStatus() config.ForwardingStatus            { ret
 func (statsCoreStub) ForwardingConfig() config.ForwardingConfig            { return config.ForwardingConfig{} }
 func (statsCoreStub) UpdateForwardingConfig(config.ForwardingConfig) error { return nil }
 func (statsCoreStub) TestForwarding() (map[string]any, error)              { return nil, nil }
+func (statsCoreStub) TestSplunk() (map[string]any, error)                 { return nil, nil }
 func (statsCoreStub) FlushForwarding() map[string]any                      { return nil }
 func (statsCoreStub) QueueStatus() map[string]any                          { return nil }
 func (statsCoreStub) Health() map[string]any                               { return nil }
@@ -91,6 +92,7 @@ func (sourceQueryStub) ForwardingStatus() config.ForwardingStatus             { 
 func (sourceQueryStub) ForwardingConfig() config.ForwardingConfig             { return config.ForwardingConfig{} }
 func (sourceQueryStub) UpdateForwardingConfig(config.ForwardingConfig) error  { return nil }
 func (sourceQueryStub) TestForwarding() (map[string]any, error)               { return nil, nil }
+func (sourceQueryStub) TestSplunk() (map[string]any, error)                   { return nil, nil }
 func (sourceQueryStub) FlushForwarding() map[string]any                       { return nil }
 func (sourceQueryStub) QueueStatus() map[string]any                           { return nil }
 func (sourceQueryStub) Health() map[string]any                                { return nil }

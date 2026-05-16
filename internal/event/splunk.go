@@ -24,16 +24,18 @@ func BuildSplunkPayload(evt Event, source string, defaultIndex string) SplunkPay
 		t = parsed.UTC()
 	}
 	index := defaultIndex
-	if v, ok := evt.Tags["siem_index_hint"]; ok {
-		if s, ok := v.(string); ok && s != "" {
-			index = s
-		}
+	if index == "" {
+		index = "ot_security"
 	}
 	sourcetype := sourceutil.SplunkSourcetypeFor(evt.SourceType)
 	if v, ok := evt.Tags["splunk_sourcetype"]; ok {
 		if s, ok := v.(string); ok && s != "" && s != "labshock:ot:unknown" {
 			sourcetype = s
 		}
+	}
+	sourceValue := source
+	if sourceValue == "" {
+		sourceValue = evt.Source
 	}
 	host := evt.AssetName
 	if host == "" {
@@ -42,7 +44,7 @@ func BuildSplunkPayload(evt Event, source string, defaultIndex string) SplunkPay
 	return SplunkPayload{
 		Time:       float64(t.UnixNano()) / 1e9,
 		Host:       host,
-		Source:     source,
+		Source:     sourceValue,
 		Sourcetype: sourcetype,
 		Index:      index,
 		Event:      evt.ToMap(),
