@@ -69,6 +69,42 @@ func (a *API) handleFilterConfig(w http.ResponseWriter, r *http.Request) {
 	ingest.WriteJSON(w, http.StatusOK, map[string]any{"filters": []any{}})
 }
 
+func (a *API) handleSources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, a.core.Sources())
+}
+
+func (a *API) handleSourcesSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, a.core.SourcesSummary())
+}
+
+func (a *API) handleSourceDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sourceType := strings.TrimSpace(r.URL.Query().Get("source_type"))
+	assetIP := strings.TrimSpace(r.URL.Query().Get("asset_ip"))
+	limit := parseInt(r.URL.Query().Get("limit"), 50)
+	if sourceType == "" || assetIP == "" {
+		http.Error(w, "source_type and asset_ip are required", http.StatusBadRequest)
+		return
+	}
+	detail, ok := a.core.SourceDetail(sourceType, assetIP, limit)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, detail)
+}
+
 func (a *API) handleEventsList(w http.ResponseWriter, r *http.Request) {
 	q := storage.EventQuery{
 		Limit:      parseInt(r.URL.Query().Get("limit"), 200),
@@ -117,6 +153,10 @@ func (a *API) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if strings.TrimSpace(r.URL.Path) == "/stats" {
+		ingest.WriteJSON(w, http.StatusOK, a.core.Stats())
+		return
+	}
 	ingest.WriteJSON(w, http.StatusOK, a.core.StatsSummary())
 }
 
@@ -126,14 +166,6 @@ func (a *API) handleStatsTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ingest.WriteJSON(w, http.StatusOK, a.core.StatsTimeline())
-}
-
-func (a *API) handleSources(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	ingest.WriteJSON(w, http.StatusOK, a.core.Sources())
 }
 
 func (a *API) handleForwardingStatus(w http.ResponseWriter, r *http.Request) {

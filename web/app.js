@@ -1,10 +1,12 @@
 const state = {
   events: [],
-  summary: {},
+  stats: {},
+  statsSummary: {},
   queue: {},
   forwarding: {},
   forwardingStatus: {},
-  sources: [],
+  sources: {},
+  sourcesSummary: {},
   timeline: [],
 };
 
@@ -33,18 +35,128 @@ function safe(v, d = "-") {
   return v;
 }
 
+function esc(v) {
+  return String(safe(v, "")).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function sourceGroups() {
+  return [
+    "Firewall",
+    "PLCs",
+    "SCADA / FUXA",
+    "OPC UA",
+    "GDS / PKI",
+    "Engineering Workstation",
+    "IDS / Future Monitoring",
+    "Unknown / Other",
+  ];
+}
+
+function sourceFilterState() {
+  return {
+    group: document.getElementById("src-filter-group")?.value || "",
+    sourceType: document.getElementById("src-filter-type")?.value || "",
+    zone: document.getElementById("src-filter-zone")?.value || "",
+    severity: document.getElementById("src-filter-severity")?.value || "",
+    enabled: document.getElementById("src-filter-enabled")?.value || "",
+    configured: document.getElementById("src-filter-configured")?.value || "",
+    search: document.getElementById("src-filter-search")?.value || "",
+  };
+}
+
+function matchesSourceFilter(source, filter) {
+  const hay = [
+    source.source_key,
+    source.id,
+    source.name,
+    source.asset_name,
+    source.asset_ip,
+    source.source_type,
+    source.zone,
+    source.group,
+    source.impact,
+    source.protocol,
+  ].join(" ").toLowerCase();
+  if (filter.group && source.group !== filter.group) return false;
+  if (filter.sourceType && source.source_type !== filter.sourceType) return false;
+  if (filter.zone && (source.zone || "") !== filter.zone) return false;
+  if (filter.severity && !(source.severity_counts || {})[filter.severity]) return false;
+  if (filter.enabled === "true" && !source.enabled) return false;
+  if (filter.enabled === "false" && source.enabled) return false;
+  if (filter.configured === "configured" && !source.configured) return false;
+  if (filter.configured === "discovered" && !source.discovered) return false;
+  if (filter.search && !hay.includes(filter.search.toLowerCase())) return false;
+  return true;
+}
+
+function badgeList(counts = {}, clsPrefix = "sev") {
+  return Object.entries(counts)
+    .filter(([, v]) => v)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<span class="badge ${clsPrefix}-${k}">${esc(k)}: ${v}</span>`)
+    .join(" ");
+}
+
+function topMessagesList(messages = []) {
+  if (!messages.length) return `<span class="muted">none</span>`;
+  return messages.slice(0, 3).map((m) => `<li>${esc(m.message)} <span class="muted">(${m.count})</span></li>`).join("");
+}
+
+function sourceCard(source) {
+  return `
+    <article class="source-card">
+      <div class="source-card-header">
+        <div>
+          <div class="source-name">${esc(source.name || source.asset_name || source.id || source.source_key)}</div>
+          <div class="source-meta">${esc(source.group)} · ${esc(source.zone || "-")} · ${esc(source.impact || "-")} · ${esc(source.protocol || "-")}</div>
+        </div>
+        <div class="source-badges">
+          <span class="badge ${source.enabled ? "sev-info" : "sev-warning"}">${source.enabled ? "enabled" : "disabled"}</span>
+          <span class="badge ${source.forward_enabled ? "sev-info" : "sev-warning"}">${source.forward_enabled ? "forward" : "no-forward"}</span>
+          <span class="badge ${source.configured ? "sev-info" : "sev-warning"}">${source.configured ? "configured" : "discovered"}</span>
+        </div>
+      </div>
+      <div class="source-body">
+        <div><span class="label">IP</span> ${esc(source.asset_ip)}</div>
+        <div><span class="label">Type</span> ${esc(source.source_type)}</div>
+        <div><span class="label">ID</span> ${esc(source.id)}</div>
+        <div><span class="label">Last Seen</span> ${esc(source.last_seen)}</div>
+        <div><span class="label">Event Count</span> ${safe(source.event_count, 0)}</div>
+        <div><span class="label">SIEM Hint</span> ${esc(source.siem_index_hint)}</div>
+        <div><span class="label">Splunk Sourcetype</span> ${esc(source.splunk_sourcetype)}</div>
+      </div>
+      <div class="source-section">
+        <div class="label">Severity</div>
+        <div class="badge-row">${badgeList(source.severity_counts)}</div>
+      </div>
+      <div class="source-section">
+        <div class="label">Categories</div>
+        <div class="badge-row">${badgeList(source.category_counts, "cat")}</div>
+      </div>
+      <div class="source-section">
+        <div class="label">Top Messages</div>
+        <ul class="top-messages">${topMessagesList(source.top_messages)}</ul>
+      </div>
+      <div class="source-actions">
+        <button class="source-detail" data-source-type="${esc(source.source_type)}" data-asset-ip="${esc(source.asset_ip)}">Detail</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderDashboard() {
-  const s = state.summary || {};
+  const s = state.stats || {};
+  const ss = state.statsSummary || {};
   const q = state.queue || {};
   const kpis = [
-    ["Total Received", s.total_received || 0],
+    ["Total Events", s.total_events || 0],
+    ["Sources", s.source_count || 0],
     ["Queued", q.queued || 0],
     ["Forwarded", q.forwarded || 0],
     ["Failed", q.failed || 0],
-    ["Event Rate", `${s.event_rate_per_second || 0} ev/s`],
-    ["Security Events", s.security_events || 0],
-    ["Top Source", safe(s.top_source?.name)],
-    ["Top Sourcetype", safe(s.top_sourcetype?.name)],
+    ["Critical", ss.critical_count || 0],
+    ["Warning", ss.warning_count || 0],
+    ["Latest Event", safe(s.latest_event_timestamp)],
   ];
   document.getElementById("tab-dashboard").innerHTML = `
     <div class="grid">
@@ -105,24 +217,60 @@ function renderEvents() {
 }
 
 function renderSources() {
-  const rows = state.sources || [];
+  const snapshot = state.sources || {};
+  const rows = snapshot.sources || [];
+  const filter = sourceFilterState();
+  const filtered = rows.filter((s) => matchesSourceFilter(s, filter));
+  const zones = [...new Set(rows.map((s) => s.zone).filter(Boolean))].sort();
+  const sourceTypes = [...new Set(rows.map((s) => s.source_type).filter(Boolean))].sort();
+  const severityKeys = [...new Set(rows.flatMap((s) => Object.keys(s.severity_counts || {})))].sort();
+  const groups = sourceGroups();
   document.getElementById("tab-sources").innerHTML = `
-    <table>
-      <thead><tr><th>Name</th><th>Type</th><th>Endpoint</th><th>Enabled</th><th>Last Seen</th><th>Events</th></tr></thead>
-      <tbody>
-        ${rows.map((s) => `
-          <tr>
-            <td>${safe(s.name)}</td>
-            <td>${safe(s.type)}</td>
-            <td>${safe(s.endpoint)}</td>
-            <td>${String(!!s.enabled)}</td>
-            <td>${safe(s.last_seen)}</td>
-            <td>${safe(s.event_seen, 0)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
+    <div class="card source-summary-bar">
+      <div><span class="label">Total</span> ${safe(snapshot.total_sources, 0)}</div>
+      <div><span class="label">Configured</span> ${safe(snapshot.configured_sources, 0)}</div>
+      <div><span class="label">Discovered</span> ${safe(snapshot.discovered_sources, 0)}</div>
+      <div><span class="label">Generated</span> ${esc(snapshot.generated_at)}</div>
+      <div><span class="label">OT Source</span> ${esc(snapshot.ot_collector_url)}</div>
+    </div>
+    <div class="toolbar source-filters">
+      <select id="src-filter-group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${filter.group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
+      <select id="src-filter-type"><option value="">All source types</option>${sourceTypes.map((t) => `<option value="${esc(t)}" ${filter.sourceType === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+      <select id="src-filter-zone"><option value="">All zones</option>${zones.map((z) => `<option value="${esc(z)}" ${filter.zone === z ? "selected" : ""}>${esc(z)}</option>`).join("")}</select>
+      <select id="src-filter-severity"><option value="">Any severity</option>${severityKeys.map((s) => `<option value="${esc(s)}" ${filter.severity === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <select id="src-filter-enabled"><option value="">Enabled or disabled</option><option value="true" ${filter.enabled === "true" ? "selected" : ""}>Enabled</option><option value="false" ${filter.enabled === "false" ? "selected" : ""}>Disabled</option></select>
+      <select id="src-filter-configured"><option value="">Configured or discovered</option><option value="configured" ${filter.configured === "configured" ? "selected" : ""}>Configured</option><option value="discovered" ${filter.configured === "discovered" ? "selected" : ""}>Discovered</option></select>
+      <input id="src-filter-search" placeholder="search by IP, name, id" value="${esc(filter.search)}" />
+      <button id="src-filter-apply" class="primary">Apply</button>
+    </div>
+    <div class="source-groups">
+      ${groups.map((group) => {
+        const items = filtered.filter((s) => s.group === group);
+        if (!items.length) return "";
+        return `
+          <section class="source-group">
+            <div class="source-group-head">
+              <h3>${esc(group)}</h3>
+              <span class="badge sev-info">${items.length} sources</span>
+            </div>
+            <div class="source-grid">
+              ${items.map((s) => sourceCard(s)).join("")}
+            </div>
+          </section>
+        `;
+      }).join("")}
+    </div>
   `;
+  document.getElementById("src-filter-apply").addEventListener("click", () => renderSources());
+  document.querySelectorAll(".source-detail").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const sourceType = btn.dataset.sourceType;
+      const assetIp = btn.dataset.assetIp;
+      const detail = await api(`/sources/detail?source_type=${encodeURIComponent(sourceType)}&asset_ip=${encodeURIComponent(assetIp)}&limit=10`);
+      jsonModalBody.textContent = JSON.stringify(detail, null, 2);
+      jsonModal.showModal();
+    });
+  });
 }
 
 function renderQueue() {
@@ -282,23 +430,27 @@ async function loadEvents(filters = {}) {
 
 async function refresh() {
   try {
-    const [health, summary, queue, forwarding, forwardingStatus, sources, timeline] = await Promise.all([
+    const [health, stats, statsSummary, queue, forwarding, forwardingStatus, sources, sourcesSummary, timeline] = await Promise.all([
       api("/health"),
+      api("/stats"),
       api("/stats/summary"),
       api("/queue/status"),
       api("/config/forwarding"),
       api("/forwarding/status"),
       api("/sources"),
+      api("/sources/summary"),
       api("/stats/timeline"),
     ]);
-    state.summary = summary;
+    state.stats = stats;
+    state.statsSummary = statsSummary;
     state.queue = queue;
     state.forwarding = forwarding;
     state.forwardingStatus = forwardingStatus;
     state.sources = sources;
+    state.sourcesSummary = sourcesSummary;
     state.timeline = timeline;
     document.getElementById("health-pill").textContent = health.status || "offline";
-    document.getElementById("rate-pill").textContent = `${summary.event_rate_per_second || 0} ev/s`;
+    document.getElementById("rate-pill").textContent = `${statsSummary.total_events || 0} total`;
   } catch (e) {
     document.getElementById("health-pill").textContent = "offline";
   }

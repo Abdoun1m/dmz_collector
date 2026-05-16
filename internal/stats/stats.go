@@ -33,6 +33,7 @@ type Stats struct {
 	rateSecond   int64
 	rateCount    int64
 	rateEPS      int64
+	latestEventTimestamp string
 }
 
 func New() *Stats {
@@ -76,6 +77,11 @@ func (s *Stats) Add(e event.Event) {
 	src.EventCount++
 	src.LastSeen = e.ReceivedAt
 	s.sources[key] = src
+	if e.ReceivedAt != "" {
+		if s.latestEventTimestamp == "" || e.ReceivedAt > s.latestEventTimestamp {
+			s.latestEventTimestamp = e.ReceivedAt
+		}
+	}
 	s.bumpRateLocked()
 }
 
@@ -93,6 +99,30 @@ func (s *Stats) Summary() map[string]any {
 		"top_source":        topOne(s.bySource),
 		"top_sourcetype":    topOne(s.bySourcetype),
 	}
+}
+
+func (s *Stats) TotalReceived() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.totalReceived
+}
+
+func (s *Stats) SeverityCount(level string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.bySeverity[level]
+}
+
+func (s *Stats) LatestEventTimestamp() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.latestEventTimestamp
+}
+
+func (s *Stats) SourceCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.sources)
 }
 
 func (s *Stats) bumpRateLocked() {

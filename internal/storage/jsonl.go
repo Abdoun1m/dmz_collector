@@ -158,6 +158,35 @@ func (s *JSONLStore) LoadIDSet() (map[string]struct{}, error) {
 	return out, nil
 }
 
+func (s *JSONLStore) LoadAll() ([]event.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := os.Open(s.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []event.Event{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	out := make([]event.Event, 0, 512)
+	for scanner.Scan() {
+		var rec StoredRecord
+		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+			continue
+		}
+		if len(rec.OriginalEventJSON) > 0 {
+			rec.Event.OriginalRaw = append(json.RawMessage(nil), rec.OriginalEventJSON...)
+		}
+		out = append(out, rec.Event)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func matches(e event.Event, q EventQuery) bool {
 	if q.SourceType != "" && !strings.EqualFold(e.SourceType, q.SourceType) {
 		return false

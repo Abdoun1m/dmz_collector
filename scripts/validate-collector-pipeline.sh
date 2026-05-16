@@ -75,7 +75,15 @@ curl -s "$DMZ_BASE/events?limit=10" | jq '.[] | select(.id=="'${DMZ_TEST_ID}'")'
 
 # Stats endpoints
 echo "Checking DMZ /stats"
-curl -s "$DMZ_BASE/stats" | jq .
+stats_body=$(curl -s -w '\n%{http_code}' "$DMZ_BASE/stats")
+stats_code=$(printf '%s\n' "$stats_body" | tail -n 1)
+stats_json=$(printf '%s\n' "$stats_body" | sed '$d')
+if [ "$stats_code" = "200" ]; then
+  printf '%s\n' "$stats_json" | jq .
+else
+  echo "DMZ /stats returned HTTP $stats_code, falling back to /stats/summary"
+  curl -s "$DMZ_BASE/stats/summary" | jq .
+fi
 
 echo "Checking DMZ /stats/summary"
 curl -s "$DMZ_BASE/stats/summary" | jq .

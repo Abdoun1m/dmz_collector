@@ -19,9 +19,12 @@ type Core interface {
 	IngestSingle(event.Event) error
 	ReadEvents(storage.EventQuery) ([]event.Event, error)
 	ReadEventByID(string) (event.Event, bool, error)
+	Stats() map[string]any
 	StatsSummary() map[string]any
 	StatsTimeline() []map[string]any
-	Sources() []map[string]any
+	Sources() map[string]any
+	SourcesSummary() map[string]any
+	SourceDetail(string, string, int) (map[string]any, bool)
 	ForwardingStatus() config.ForwardingStatus
 	ForwardingConfig() config.ForwardingConfig
 	UpdateForwardingConfig(config.ForwardingConfig) error
@@ -57,6 +60,8 @@ func (a *API) Run(ctx context.Context) error {
 	mux.HandleFunc("/stats/summary", a.handleStatsSummary)
 	mux.HandleFunc("/stats/timeline", a.handleStatsTimeline)
 	mux.HandleFunc("/sources", a.handleSources)
+	mux.HandleFunc("/sources/summary", a.handleSourcesSummary)
+	mux.HandleFunc("/sources/detail", a.handleSourceDetail)
 	mux.HandleFunc("/forwarding/status", a.handleForwardingStatus)
 	mux.HandleFunc("/config/forwarding", a.handleConfigForwarding)
 	mux.HandleFunc("/config/rules", a.handleConfigRules)

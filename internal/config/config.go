@@ -30,6 +30,7 @@ type Config struct {
 	EnableOTPull bool
 	OTBaseURL    string
 	OTPollEvery  time.Duration
+	OTEventLimit int
 	EnableOTSSE  bool
 
 	QueueBatchSize int
@@ -77,6 +78,7 @@ func Load() Config {
 		EnableOTPull:         parseBool(getenv("OT_PULL_ENABLED", "false")),
 		OTBaseURL:            strings.TrimRight(getenv("OT_COLLECTOR_URL", "http://192.168.1.70:8088"), "/"),
 		OTPollEvery:          time.Duration(parseInt(getenv("OT_PULL_INTERVAL_SECONDS", "10"), 10)) * time.Second,
+		OTEventLimit:         parseInt(getenv("OT_PULL_EVENT_LIMIT", "5000"), 5000),
 		EnableOTSSE:          parseBool(getenv("OT_SSE_ENABLED", "false")),
 		QueueBatchSize:       parseInt(getenv("FORWARD_BATCH_SIZE", "50"), 50),
 	}

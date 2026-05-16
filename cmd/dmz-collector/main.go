@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"github.com/Abdoun1m/dmz_collector/internal/forwarder"
 	"github.com/Abdoun1m/dmz_collector/internal/ingest"
 	"github.com/Abdoun1m/dmz_collector/internal/normalizer"
+	"github.com/Abdoun1m/dmz_collector/internal/sourcecatalog"
 	"github.com/Abdoun1m/dmz_collector/internal/stats"
 	"github.com/Abdoun1m/dmz_collector/internal/storage"
 	"github.com/Abdoun1m/dmz_collector/internal/vault"
@@ -39,6 +41,7 @@ type App struct {
 
 	streamHub *api.StreamHub
 	fwdStore  *config.ForwardingStore
+	sourceCatalog *sourcecatalog.Catalog
 
 	splunkFwd *forwarder.SplunkHECForwarder
 	syslogFwd *forwarder.SyslogForwarder
@@ -82,6 +85,7 @@ func main() {
 		stats:     stats.New(),
 		streamHub: api.NewStreamHub(),
 		fwdStore:  forwardingStore,
+		sourceCatalog: sourcecatalog.New(cfg.OTBaseURL),
 		splunkFwd: forwarder.NewSplunkHECForwarder(cfg.Splunk.VerifyTLS, 5*time.Second),
 		syslogFwd: forwarder.NewSyslogForwarder(),
 		seenIDs:   map[string]struct{}{},
@@ -92,6 +96,7 @@ func main() {
 	}
 	app.initSources()
 	app.loadSeenIDs()
+	app.bootstrapSourceCatalog()
 	app.bootstrapSpoolQueue()
 
 	_ = vault.New(cfg.Vault, logger).LoadSecrets()
@@ -176,7 +181,7 @@ func (a *App) ingestOne(evt event.Event) (bool, bool, error) {
 	a.mu.Unlock()
 
 	a.stats.Add(ev)
-	a.updateSourceFromEvent(ev)
+	a.observeSourceEvent(ev)
 	a.streamHub.Publish(ev)
 
 	queued := false
@@ -195,32 +200,68 @@ func (a *App) ReadEventByID(id string) (event.Event, bool, error) {
 }
 
 func (a *App) StatsSummary() map[string]any {
-	out := a.stats.Summary()
-	out["queue"] = a.QueueStatus()
-	out["forwarding"] = a.ForwardingStatus()
-	return out
+	return map[string]any{
+		"total_events":            a.stats.TotalReceived(),
+		"source_count":            a.sourceCatalog.Count(),
+		"critical_count":          a.stats.SeverityCount("critical"),
+		"warning_count":           a.stats.SeverityCount("warning"),
+		"latest_event_timestamp":  a.stats.LatestEventTimestamp(),
+		"queue":                   a.QueueStatus(),
+	}
+}
+
+func (a *App) Stats() map[string]any {
+	return map[string]any{
+		"service":                a.cfg.ServiceName,
+		"status":                 "ok",
+		"storage_backend":        a.cfg.StorageBackend,
+		"events_file":            a.cfg.EventsFile,
+		"spool_file":             a.cfg.SpoolFile,
+		"queue":                  a.QueueStatus(),
+		"total_events":           a.stats.TotalReceived(),
+		"source_count":           a.sourceCatalog.Count(),
+		"latest_event_timestamp": a.stats.LatestEventTimestamp(),
+	}
 }
 
 func (a *App) StatsTimeline() []map[string]any {
 	return a.stats.Timeline()
 }
 
-func (a *App) Sources() []map[string]any {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	out := make([]map[string]any, 0, len(a.sources))
-	for _, s := range a.sources {
-		out = append(out, map[string]any{
-			"name":       s.Name,
-			"type":       s.Type,
-			"endpoint":   s.Endpoint,
-			"enabled":    s.Enabled,
-			"last_seen":  s.LastSeen,
-			"event_seen": s.EventSeen,
-		})
+func (a *App) Sources() map[string]any {
+	snap := a.sourceCatalog.Snapshot()
+	return map[string]any{
+		"generated_at":      snap.GeneratedAt,
+		"source_of_truth":   snap.SourceOfTruth,
+		"ot_collector_url":  snap.OTCollectorURL,
+		"total_sources":     snap.TotalSources,
+		"configured_sources": snap.ConfiguredSources,
+		"discovered_sources": snap.DiscoveredSources,
+		"sources":           snap.Sources,
 	}
-	sort.Slice(out, func(i, j int) bool { return toString(out[i]["name"]) < toString(out[j]["name"]) })
-	return out
+}
+
+func (a *App) SourcesSummary() map[string]any {
+	summary := a.sourceCatalog.Summary()
+	return map[string]any{
+		"generated_at":   summary.GeneratedAt,
+		"by_group":       summary.ByGroup,
+		"by_source_type": summary.BySourceType,
+		"by_zone":        summary.ByZone,
+		"by_severity":    summary.BySeverity,
+		"by_category":    summary.ByCategory,
+	}
+}
+
+func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]any, bool) {
+	detail, ok := a.sourceCatalog.Detail(sourceType, assetIP, limit)
+	if !ok {
+		return nil, false
+	}
+	return map[string]any{
+		"source":        detail.Source,
+		"recent_events": detail.RecentEvents,
+	}, true
 }
 
 func (a *App) ForwardingStatus() config.ForwardingStatus {
@@ -391,7 +432,8 @@ func (a *App) runOTPull(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			reqURL := a.cfg.OTBaseURL + "/events?limit=500"
+			a.syncOTMetadata(ctx, client)
+			reqURL := a.cfg.OTBaseURL + "/events?limit=" + strconv.Itoa(a.cfg.OTEventLimit)
 			resp, err := client.Get(reqURL)
 			if err != nil {
 				a.markSourceSeen("ot_collector", false)
@@ -414,6 +456,7 @@ func (a *App) runOTPull(ctx context.Context) {
 				if err != nil {
 					continue
 				}
+				a.observeSourceEvent(ev)
 				_, _, _ = a.ingestOne(ev)
 			}
 			a.markSourceSeen("ot_collector", true)
@@ -459,6 +502,7 @@ func (a *App) runOTSSE(ctx context.Context) {
 			if err != nil {
 				continue
 			}
+			a.observeSourceEvent(ev)
 			_, _, _ = a.ingestOne(ev)
 		}
 		_ = resp.Body.Close()
@@ -555,6 +599,16 @@ func (a *App) initSources() {
 	for _, s := range config.DefaultSources() {
 		a.sources[s.Type] = s
 	}
+	a.sourceCatalog.SeedConfiguredSources(config.DefaultSources())
+}
+
+func (a *App) bootstrapSourceCatalog() {
+	events, err := a.store.LoadAll()
+	if err != nil {
+		a.logger.Warn("failed loading stored events for source bootstrap", "error", err)
+		return
+	}
+	a.sourceCatalog.BootstrapEvents(events)
 }
 
 func (a *App) updateSourceFromEvent(e event.Event) {
@@ -571,6 +625,49 @@ func (a *App) updateSourceFromEvent(e event.Event) {
 		src.Endpoint = e.AssetIP
 	}
 	a.sources[key] = src
+}
+
+func (a *App) observeSourceEvent(e event.Event) {
+	a.sourceCatalog.ObserveEvent(e)
+}
+
+func (a *App) syncOTMetadata(ctx context.Context, client *http.Client) {
+	endpoints := []string{"/config/sources", "/stats", "/config/rules", "/config/forwarding"}
+	for _, endpoint := range endpoints {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.OTBaseURL+endpoint, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			a.logger.Debug("ot metadata sync failed", "endpoint", endpoint, "error", err)
+			continue
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			a.logger.Debug("ot metadata sync non-2xx", "endpoint", endpoint, "status", resp.Status)
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.OTBaseURL+"/config/sources", nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return
+	}
+	var rows []sourcecatalog.OTConfiguredSource
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&rows); err != nil {
+		a.logger.Debug("failed decoding ot config sources", "error", err)
+		return
+	}
+	a.sourceCatalog.MergeConfiguredSources(rows)
+	a.sourceCatalog.SetOTURL(a.cfg.OTBaseURL)
 }
 
 func (a *App) markSourceSeen(kind string, ok bool) {
