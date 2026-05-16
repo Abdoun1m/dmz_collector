@@ -342,7 +342,7 @@ func (a *App) refreshOTConfiguredSources() {
 	a.logger.Info("ot_config_sources_count", "ot_config_sources_count", len(rows))
 	a.sourceCatalog.MergeConfiguredSources(rows)
 	a.sourceCatalog.SetOTURL(a.cfg.OTBaseURL)
-	snap := a.sourceCatalog.Snapshot()
+	snap := a.sourceCatalog.Snapshot(sourcecatalog.VisibilityOptions{IncludeInternal: true, IncludeDisabled: true, IncludeDirectSIEM: true})
 	a.logger.Info("source merge result", "source_merge_configured_count", snap.ConfiguredSources, "source_merge_discovered_count", snap.DiscoveredSources)
 }
 
