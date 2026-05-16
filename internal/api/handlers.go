@@ -33,8 +33,14 @@ func (a *API) handleEventsIngestOrList(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleEventsIngest(w http.ResponseWriter, r *http.Request) {
 	events, err := ingest.DecodeEventsFromRequest(r)
 	if err != nil {
+		if err == ingest.ErrPayloadTooLarge {
+			ingest.WriteJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+				"accepted": 0, "rejected": 1, "queued": 0, "errors": []string{"payload too large"},
+			})
+			return
+		}
 		ingest.WriteJSON(w, http.StatusBadRequest, map[string]any{
-			"accepted": 0, "rejected": 1, "queued": 0, "errors": []string{"invalid json payload"},
+			"accepted": 0, "rejected": 1, "queued": 0, "errors": []string{err.Error()},
 		})
 		return
 	}
@@ -45,6 +51,22 @@ func (a *API) handleEventsIngest(w http.ResponseWriter, r *http.Request) {
 		"queued":   queued,
 		"errors":   errs,
 	})
+}
+
+func (a *API) handleConfigRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, config.DefaultRules())
+}
+
+func (a *API) handleFilterConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ingest.WriteJSON(w, http.StatusOK, map[string]any{"filters": []any{}})
 }
 
 func (a *API) handleEventsList(w http.ResponseWriter, r *http.Request) {

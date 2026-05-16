@@ -290,6 +290,8 @@ func (a *App) QueueStatus() map[string]any {
 		"last_success": q.LastSuccess,
 		"last_failure": q.LastFailure,
 		"paused":       q.Paused,
+		"events_file":  a.cfg.EventsFile,
+		"spool_file":   a.cfg.SpoolFile,
 	}
 }
 

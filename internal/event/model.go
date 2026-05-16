@@ -14,6 +14,7 @@ type Event struct {
 	Timestamp     string         `json:"timestamp"`
 	ReceivedAt    string         `json:"received_at"`
 	Zone          string         `json:"zone"`
+	Source        string         `json:"source"`
 	SourceType    string         `json:"source_type"`
 	AssetName     string         `json:"asset_name"`
 	AssetIP       string         `json:"asset_ip"`
@@ -33,6 +34,7 @@ var knownKeys = map[string]struct{}{
 	"timestamp":      {},
 	"received_at":    {},
 	"zone":           {},
+	"source":         {},
 	"source_type":    {},
 	"asset_name":     {},
 	"asset_ip":       {},
@@ -54,6 +56,7 @@ func ParseOne(raw []byte) (Event, error) {
 		Timestamp:     getString(m["timestamp"]),
 		ReceivedAt:    getString(m["received_at"]),
 		Zone:          getString(m["zone"]),
+		Source:        getString(m["source"]),
 		SourceType:    getString(m["source_type"]),
 		AssetName:     getString(m["asset_name"]),
 		AssetIP:       getString(m["asset_ip"]),
@@ -118,6 +121,9 @@ func (e *Event) EnsureDefaults() {
 	if e.SourceType == "" {
 		e.SourceType = "unknown"
 	}
+	if e.Source == "" {
+		e.Source = "unknown"
+	}
 	if e.Severity == "" {
 		e.Severity = "info"
 	}
@@ -128,7 +134,8 @@ func (e *Event) EnsureDefaults() {
 		e.EventCategory = "unknown"
 	}
 	if e.ID == "" {
-		sum := sha1.Sum([]byte(fmt.Sprintf("%s|%s|%s|%s|%s", e.Timestamp, e.SourceType, e.AssetIP, e.EventCategory, e.Message)))
+		// include raw in deterministic id to better deduplicate retried payloads
+		sum := sha1.Sum([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s", e.Timestamp, e.SourceType, e.AssetIP, e.Message, e.Raw, e.EventCategory)))
 		e.ID = "dmz-" + hex.EncodeToString(sum[:8])
 	}
 }
@@ -139,6 +146,7 @@ func (e Event) ToMap() map[string]any {
 		"timestamp":      e.Timestamp,
 		"received_at":    e.ReceivedAt,
 		"zone":           e.Zone,
+		"source":         e.Source,
 		"source_type":    e.SourceType,
 		"asset_name":     e.AssetName,
 		"asset_ip":       e.AssetIP,

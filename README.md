@@ -35,15 +35,17 @@ OT Collector forwarding target:
 
 ## 4. Build / Run
 
+Build and run the DMZ collector (container image is provided by the repo):
+
 ```bash
 docker compose -f docker-compose.dmz.yml build
 docker compose -f docker-compose.dmz.yml up -d
-curl http://localhost:9000/health
+curl http://localhost:9000/health | jq .
 ```
 
 UI:
 
-- `http://localhost:9000/`
+- http://localhost:9000/
 
 ## 5. OVS Attachment
 
@@ -126,22 +128,30 @@ Normalization:
 
 ## 10. API Endpoints
 
-- `POST /events`
-- `GET /health`
-- `GET /events`
-- `GET /events/{id}`
-- `GET /events/stream` (SSE)
-- `GET /stats/summary`
-- `GET /stats/timeline`
-- `GET /sources`
-- `GET /forwarding/status`
-- `GET /config/forwarding`
-- `POST /config/forwarding`
-- `POST /forwarding/test`
-- `POST /forwarding/flush`
-- `GET /queue/status`
-- `POST /ids/alerts`
+The DMZ collector exposes an HTTP API. These routes reflect the current code:
 
+- `POST /events` — ingest one event or an array of events (JSON). Returns structured JSON with counts of accepted/rejected/queued items. Returns HTTP 413 if the payload exceeds the configured limit (4 MiB).
+- `GET /health` — service health and basic runtime metadata (storage backend, files, queue summary).
+- `GET /events` — list stored events. Supports query filtering (limit, source_type, severity, category, asset, search).
+- `GET /events/{id}` — read a single stored event by id.
+- `GET /events/stream` — server-sent event stream of incoming events.
+- `GET /stats` — alias for `/stats/summary` (returns JSON summary).
+- `GET /stats/summary` — aggregated counters and basic telemetry (by source_type, severity, category, top sources).
+- `GET /stats/timeline` — timeline buckets of events.
+- `GET /sources` — known source status objects.
+- `GET /forwarding/status` — forwarding queue counters and last responses.
+- `GET /config/forwarding` — current forwarding configuration (Splunk, syslog, paused).
+- `POST /config/forwarding` — update forwarding configuration (persisted to disk).
+- `POST /forwarding/test` — send a forwarding test event.
+- `POST /forwarding/flush` — enqueue pending spool records for forwarding.
+- `GET /queue/status` — queue-level snapshot with `queued`, `forwarded`, `failed`, `last_success`, `last_failure`, `paused`, plus `events_file` and `spool_file` paths.
+- `GET /config/rules` — simple read-only list of default rules (present for compatibility).
+- `GET /filter/config` — stub endpoint returning an empty `filters` array (compatibility placeholder).
+- `POST /ids/alerts` — accept IDS (Suricata-like) alert payloads and normalize them into events.
+
+Notes:
+- `/events` accepts both a single event object and an array of events.
+- Events are first persisted locally to `events_file`, appended to the spool (`spool_file`), and then enqueued for forwarding.
 ## 11. Troubleshooting
 
 - Check health:
@@ -164,19 +174,45 @@ Common issues:
 
 ## Files And Runtime Notes
 
-- Default storage backend: JSONL (`/data/events.jsonl`)
-- SQLite mode is intentionally not implemented in v1 and exits with clear error.
-- Spool checkpoint persists in `/data/spool/checkpoint.json`.
-- High-value events are prioritized in forwarding worker batches.
+- Default storage backend: JSONL (`/data/events.jsonl`). Stored records are JSON objects with `event` and `original_event_json` fields.
+- SQLite mode is intentionally not implemented in v1 and the process will exit if selected.
+- Spool file and checkpoint: `/data/spool/events.jsonl` and `/data/spool/checkpoint.json`.
+- The forward worker prioritizes high-value events (tag `high_value`) when building batches.
 
-## Acceptance Commands
+Important behaviors implemented in code:
+
+- Deduplication: the collector uses `id` as an idempotency key. If `id` is not provided, a deterministic id is computed from `timestamp|source_type|asset_ip|message|raw|event_category` hashed with SHA1 and prefixed with `dmz-` (first 8 bytes hex). This reduces duplicate entries when upstream retries occur.
+- Source normalization: `source_type` is normalized in `internal/normalizer/validator.go`. Known mappings include:
+  - `gds-agent` or `gds_agent` -> `gds_agent`
+  - `opnsense` -> `firewall`
+  - `fuxa` or `fuxa-ui` -> `scada` (decision: map FUXA to `scada` for SIEM grouping; changeable)
+- Enrichment: `internal/normalizer/enricher.go` adds tags such as `dmz_collector`, `dmz_received_at`, `purdue_zone`, `splunk_sourcetype`, and `siem_index_hint` based on event fields.
+- Payload size limit: HTTP ingestion uses a 4 MiB (4*1024*1024) limit; larger payloads produce HTTP 413 with structured JSON.
+
+Needs verification:
+- OT Collector behavior and exact forwarding config format — this repository expects an OT collector at `http://192.168.1.70:8088`, but the OT collector code is not present in this repo. Verify OT collector rules and action fields (store_only, forward_only, sample, drop) in the OT repository if you need enforcement upstream.
+
+## Acceptance / Quick Validation
+
+Build and run container
 
 ```bash
 docker compose -f docker-compose.dmz.yml build
 docker compose -f docker-compose.dmz.yml up -d
-curl http://localhost:9000/health
-curl http://localhost:9000/stats/summary
-curl http://localhost:9000/config/forwarding
-./scripts/test_send_ot_event.sh
-curl http://localhost:9000/events
+```
+
+Health and basic checks
+
+```bash
+curl -s http://192.168.1.70:8088/health | jq .  # OT Collector, if present (Needs verification)
+curl -s http://192.168.10.70:9000/health | jq .  # DMZ Collector
+curl -s http://192.168.10.70:9000/stats | jq .
+curl -s 'http://192.168.10.70:9000/events?limit=10' | jq .
+```
+
+Use the included validation script to run a quick pipeline validation (posts test events and checks forwarding):
+
+```bash
+chmod +x scripts/validate-collector-pipeline.sh
+./scripts/validate-collector-pipeline.sh http://192.168.1.70:8088 http://192.168.10.70:9000
 ```
