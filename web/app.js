@@ -13,6 +13,7 @@ const state = {
     includeDisabled: false,
     includeDirectSIEM: false,
   },
+};
 
 const tabs = document.querySelectorAll(".tabs button");
 tabs.forEach((btn) => {
