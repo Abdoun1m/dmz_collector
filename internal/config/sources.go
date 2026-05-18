@@ -16,7 +16,7 @@ func DefaultSources() []SourceStatus {
 		{Name: "Vault", Type: "vault", Endpoint: "http://192.168.10.10:8200", Enabled: false},
 		{Name: "Vault Agent", Type: "vault_agent", Endpoint: "192.168.10.11", Enabled: false},
 		{Name: "InfluxDB", Type: "influxdb", Endpoint: "http://192.168.10.15:8086", Enabled: true},
-		{Name: "OPC UA DMZ Gateway", Type: "opcua_gateway", Endpoint: "192.168.10.20", Enabled: true},
+		{Name: "OPC UA DMZ Gateway", Type: "opcua_dmz_gateway", Endpoint: "192.168.10.20", Enabled: true},
 		{Name: "LabShock GDS", Type: "gds", Endpoint: "192.168.10.30", Enabled: false},
 		{Name: "PostgreSQL GDS", Type: "postgres_gds", Endpoint: "192.168.10.31", Enabled: false},
 		{Name: "Jump Host", Type: "jumphost", Endpoint: "192.168.10.5", Enabled: false},

@@ -17,6 +17,7 @@ services:
       EVENTS_FILE: /data/events.jsonl
       SPOOL_FILE: /data/spool/events.jsonl
       DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE: ""
+      DMZ_COLLECTOR_OPCUA_DMZ_EVENTS_TOKEN_FILE: ""
     volumes:
       - dmz-collector-data:/data
 

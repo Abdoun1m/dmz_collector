@@ -127,7 +127,7 @@ func main() {
 		}()
 	}
 
-	httpAPI := api.New(cfg.APIAddr, cfg.IngestToken, cfg.GDSEventsToken, app, app.streamHub)
+	httpAPI := api.New(cfg.APIAddr, cfg.IngestToken, cfg.GDSEventsToken, cfg.OPCUADMZEventsToken, app, app.streamHub)
 	logger.Info("dmz collector starting", "api", cfg.APIAddr)
 	if err := httpAPI.Run(ctx); err != nil {
 		logger.Error("api stopped with error", "error", err)
@@ -373,6 +373,7 @@ func (a *App) SourceDetail(sourceType, assetIP string, limit int) (map[string]an
 }
 
 func (a *App) refreshOTConfiguredSources() {
+	a.sourceCatalog.SeedConfiguredSources(config.DefaultSources())
 	if strings.TrimSpace(a.cfg.OTBaseURL) == "" {
 		return
 	}
@@ -940,6 +941,9 @@ func (a *App) bootstrapSpoolQueue() {
 func (a *App) initSources() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.sources == nil {
+		a.sources = map[string]config.SourceStatus{}
+	}
 	for _, s := range config.DefaultSources() {
 		a.sources[s.Type] = s
 	}

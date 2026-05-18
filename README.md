@@ -120,6 +120,7 @@ Available now:
 - Firewall syslog listener (UDP): `0.0.0.0:5514` (configurable)
 - IDS alert endpoint: `POST /ids/alerts` with Suricata-like EVE alert payload
 - GDS event endpoint: `POST /gds/events` for raw GDS API rows, JSON/JSONL logs, health snapshots, and text lines
+- OPC UA DMZ Gateway endpoint: `POST /opcua-dmz/events` for sanitized gateway JSON, arrays, JSONL, or text fallback lines
 - Optional OT subscribe mode via SSE (`OT_SSE_ENABLED=true`)
 - DMZ Collector self-telemetry (`DMZ_SELF_TELEMETRY_ENABLED=true`) emits `source_type=dmz_collector` events for startup, heartbeat, HEC failures/recovery, and spool growth.
 
@@ -127,6 +128,7 @@ Normalization:
 
 - Firewall -> `source_type=firewall`
 - IDS -> `source_type=ids`, `event_category=security`
+- OPC UA DMZ Gateway -> `source_type=opcua_dmz_gateway`, `sourcetype=labshock:dmz:opcua_gateway`
 
 ## 9.1 DMZ Collector Self-Telemetry
 
@@ -216,6 +218,7 @@ index=ot_security zone="DMZ" source_type="vault"
 ## 10. API Endpoints
 
 - `POST /gds/events` - ingest GDS JSON, JSONL, health snapshots, or text lines and normalize to `source_type=gds`.
+- `POST /opcua-dmz/events` - ingest OPC UA DMZ Gateway JSON, JSON arrays, JSONL, or text fallback and normalize to `source_type=opcua_dmz_gateway`.
 - `POST /vault/audit` - ingest native Vault audit JSON, arrays, or JSONL and normalize to `source_type=vault`.
 
 The DMZ collector exposes an HTTP API. These routes reflect the current code:
@@ -247,6 +250,11 @@ GDS endpoint auth:
 - `/gds/events` can use a dedicated token with `DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE=/run/secrets/gds-events-token`.
 - If the file setting is present, the request must include `Authorization: Bearer <file contents>`.
 - If no GDS-specific token is configured, the endpoint falls back to `DMZ_INGEST_TOKEN` for compatibility.
+
+OPC UA DMZ endpoint auth:
+- `/opcua-dmz/events` can use a dedicated token with `DMZ_COLLECTOR_OPCUA_DMZ_EVENTS_TOKEN_FILE=/run/secrets/opcua-dmz-events-token`.
+- The gateway should mount its token file read-only and send `Authorization: Bearer <file contents>`.
+- If no OPC UA DMZ-specific token is configured, the endpoint falls back to `DMZ_INGEST_TOKEN` for compatibility.
 ## 11. Troubleshooting
 
 - Check health:

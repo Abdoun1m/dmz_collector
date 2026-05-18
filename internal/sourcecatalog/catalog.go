@@ -12,16 +12,16 @@ import (
 )
 
 type OTConfiguredSource struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	IP            string `json:"ip"`
-	Protocol      string `json:"protocol"`
-	Impact        string `json:"impact"`
-	Zone          string `json:"zone"`
-	Enabled       bool   `json:"enabled"`
-	ForwardEnabled bool  `json:"forward_enabled"`
-	Notes         string `json:"notes"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	IP             string `json:"ip"`
+	Protocol       string `json:"protocol"`
+	Impact         string `json:"impact"`
+	Zone           string `json:"zone"`
+	Enabled        bool   `json:"enabled"`
+	ForwardEnabled bool   `json:"forward_enabled"`
+	Notes          string `json:"notes"`
 }
 
 type TopMessage struct {
@@ -30,78 +30,78 @@ type TopMessage struct {
 }
 
 type SourceRecord struct {
-	SourceKey        string                 `json:"source_key"`
-	ID               string                 `json:"id"`
-	Name             string                 `json:"name"`
-	SourceType       string                 `json:"source_type"`
-	AssetIP          string                 `json:"asset_ip"`
-	AssetName        string                 `json:"asset_name"`
-	Protocol         string                 `json:"protocol"`
-	Impact           string                 `json:"impact"`
-	Zone             string                 `json:"zone"`
-	Enabled          bool                   `json:"enabled"`
-	ForwardEnabled   bool                   `json:"forward_enabled"`
-	Configured       bool                   `json:"configured"`
-	Discovered       bool                   `json:"discovered"`
-	FirstSeen        *string                `json:"first_seen"`
-	LastSeen         *string                `json:"last_seen"`
-	EventCount       int64                  `json:"event_count"`
-	SeverityCounts    map[string]int64       `json:"severity_counts"`
-	CategoryCounts    map[string]int64       `json:"category_counts"`
-	TopMessages      []TopMessage           `json:"top_messages"`
-	SIEMIndexHint    *string                `json:"siem_index_hint"`
-	SplunkSourcetype *string                `json:"splunk_sourcetype"`
-	LastEvent        map[string]any         `json:"last_event"`
-	Group            string                 `json:"group"`
-	Notes            string                 `json:"notes,omitempty"`
-}
-
-type GroupSummary struct {
-	SourceCount      int64            `json:"source_count"`
-	ConfiguredCount  int64            `json:"configured_count"`
-	DiscoveredCount  int64            `json:"discovered_count"`
+	SourceKey        string           `json:"source_key"`
+	ID               string           `json:"id"`
+	Name             string           `json:"name"`
+	SourceType       string           `json:"source_type"`
+	AssetIP          string           `json:"asset_ip"`
+	AssetName        string           `json:"asset_name"`
+	Protocol         string           `json:"protocol"`
+	Impact           string           `json:"impact"`
+	Zone             string           `json:"zone"`
+	Enabled          bool             `json:"enabled"`
+	ForwardEnabled   bool             `json:"forward_enabled"`
+	Configured       bool             `json:"configured"`
+	Discovered       bool             `json:"discovered"`
+	FirstSeen        *string          `json:"first_seen"`
+	LastSeen         *string          `json:"last_seen"`
 	EventCount       int64            `json:"event_count"`
 	SeverityCounts   map[string]int64 `json:"severity_counts"`
 	CategoryCounts   map[string]int64 `json:"category_counts"`
+	TopMessages      []TopMessage     `json:"top_messages"`
+	SIEMIndexHint    *string          `json:"siem_index_hint"`
+	SplunkSourcetype *string          `json:"splunk_sourcetype"`
+	LastEvent        map[string]any   `json:"last_event"`
+	Group            string           `json:"group"`
+	Notes            string           `json:"notes,omitempty"`
+}
+
+type GroupSummary struct {
+	SourceCount     int64            `json:"source_count"`
+	ConfiguredCount int64            `json:"configured_count"`
+	DiscoveredCount int64            `json:"discovered_count"`
+	EventCount      int64            `json:"event_count"`
+	SeverityCounts  map[string]int64 `json:"severity_counts"`
+	CategoryCounts  map[string]int64 `json:"category_counts"`
 }
 
 type SourceSnapshot struct {
-	GeneratedAt             string         `json:"generated_at"`
-	SourceOfTruth           string         `json:"source_of_truth"`
-	OTCollectorURL          string         `json:"ot_collector_url"`
-	VisibleSources          int            `json:"visible_sources"`
-	HiddenSources           int            `json:"hidden_sources"`
-	ConfiguredSourcesTotal  int            `json:"configured_sources_total"`
+	GeneratedAt              string         `json:"generated_at"`
+	SourceOfTruth            string         `json:"source_of_truth"`
+	OTCollectorURL           string         `json:"ot_collector_url"`
+	VisibleSources           int            `json:"visible_sources"`
+	HiddenSources            int            `json:"hidden_sources"`
+	ConfiguredSourcesTotal   int            `json:"configured_sources_total"`
 	DiscoveredSourcesVisible int            `json:"discovered_sources_visible"`
-	InternalSourcesHidden   int            `json:"internal_sources_hidden"`
-	DisabledSourcesHidden   int            `json:"disabled_sources_hidden"`
-	DirectSIEMSourcesHidden int            `json:"direct_siem_sources_hidden"`
-	TotalSources            int            `json:"total_sources"`
-	ConfiguredSources       int            `json:"configured_sources"`
-	DiscoveredSources       int            `json:"discovered_sources"`
-	Sources                 []SourceRecord `json:"sources"`
+	InternalSourcesHidden    int            `json:"internal_sources_hidden"`
+	DisabledSourcesHidden    int            `json:"disabled_sources_hidden"`
+	DirectSIEMSourcesHidden  int            `json:"direct_siem_sources_hidden"`
+	TotalSources             int            `json:"total_sources"`
+	ConfiguredSources        int            `json:"configured_sources"`
+	DiscoveredSources        int            `json:"discovered_sources"`
+	Sources                  []SourceRecord `json:"sources"`
 }
 
 type SourceSummary struct {
-	GeneratedAt             string                  `json:"generated_at"`
-	VisibleSources          int                     `json:"visible_sources"`
-	HiddenSources           int                     `json:"hidden_sources"`
+	GeneratedAt              string                  `json:"generated_at"`
+	VisibleSources           int                     `json:"visible_sources"`
+	HiddenSources            int                     `json:"hidden_sources"`
 	ConfiguredSourcesTotal   int                     `json:"configured_sources_total"`
 	DiscoveredSourcesVisible int                     `json:"discovered_sources_visible"`
 	InternalSourcesHidden    int                     `json:"internal_sources_hidden"`
 	DisabledSourcesHidden    int                     `json:"disabled_sources_hidden"`
 	DirectSIEMSourcesHidden  int                     `json:"direct_siem_sources_hidden"`
-	ByGroup                 map[string]GroupSummary `json:"by_group"`
-	BySourceType            map[string]int64        `json:"by_source_type"`
-	ByZone                  map[string]int64        `json:"by_zone"`
-	BySeverity              map[string]int64        `json:"by_severity"`
-	ByCategory              map[string]int64        `json:"by_category"`
+	ByGroup                  map[string]GroupSummary `json:"by_group"`
+	BySourceType             map[string]int64        `json:"by_source_type"`
+	ByZone                   map[string]int64        `json:"by_zone"`
+	BySeverity               map[string]int64        `json:"by_severity"`
+	ByCategory               map[string]int64        `json:"by_category"`
 }
 
 type VisibilityOptions struct {
-	IncludeInternal    bool
-	IncludeDisabled    bool
-	IncludeDirectSIEM  bool
+	IncludeInternal   bool
+	IncludeDisabled   bool
+	IncludeDirectSIEM bool
 }
 
 type SourceDetail struct {
@@ -110,11 +110,11 @@ type SourceDetail struct {
 }
 
 type Catalog struct {
-	mu            sync.RWMutex
-	otURL         string
-	generatedAt   string
-	records       map[string]*sourceState
-	seenEventIDs  map[string]struct{}
+	mu           sync.RWMutex
+	otURL        string
+	generatedAt  string
+	records      map[string]*sourceState
+	seenEventIDs map[string]struct{}
 }
 
 type sourceState struct {
@@ -236,6 +236,9 @@ func (c *Catalog) ObserveEvent(ev event.Event) bool {
 	}
 	state.Group = sourceutil.GroupForSourceType(canonicalType)
 	state.Discovered = true
+	if !state.Configured {
+		state.Enabled = true
+	}
 	c.generatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return true
 }
@@ -283,20 +286,20 @@ func (c *Catalog) Snapshot(opts VisibilityOptions) SourceSnapshot {
 	}
 	sortSources(out)
 	return SourceSnapshot{
-		GeneratedAt:             c.generatedAt,
-		SourceOfTruth:           "ot_collector",
-		OTCollectorURL:          c.otURL,
-		VisibleSources:          visible,
-		HiddenSources:           hidden,
-		ConfiguredSourcesTotal:  configuredTotal,
+		GeneratedAt:              c.generatedAt,
+		SourceOfTruth:            "ot_collector",
+		OTCollectorURL:           c.otURL,
+		VisibleSources:           visible,
+		HiddenSources:            hidden,
+		ConfiguredSourcesTotal:   configuredTotal,
 		DiscoveredSourcesVisible: discoveredVisible,
-		InternalSourcesHidden:   internalHidden,
-		DisabledSourcesHidden:   disabledHidden,
-		DirectSIEMSourcesHidden: directSIEMHidden,
-		TotalSources:            visible,
-		ConfiguredSources:       configuredTotal,
-		DiscoveredSources:       discoveredVisible,
-		Sources:                 out,
+		InternalSourcesHidden:    internalHidden,
+		DisabledSourcesHidden:    disabledHidden,
+		DirectSIEMSourcesHidden:  directSIEMHidden,
+		TotalSources:             visible,
+		ConfiguredSources:        configuredTotal,
+		DiscoveredSources:        discoveredVisible,
+		Sources:                  out,
 	}
 }
 
@@ -355,19 +358,19 @@ func (c *Catalog) Summary(opts VisibilityOptions) SourceSummary {
 		byCategory = mergeCounts(byCategory, rec.CategoryCounts)
 	}
 	return SourceSummary{
-		GeneratedAt:             c.generatedAt,
-		VisibleSources:          visible,
-		HiddenSources:           hidden,
-		ConfiguredSourcesTotal:  configuredTotal,
+		GeneratedAt:              c.generatedAt,
+		VisibleSources:           visible,
+		HiddenSources:            hidden,
+		ConfiguredSourcesTotal:   configuredTotal,
 		DiscoveredSourcesVisible: discoveredVisible,
-		InternalSourcesHidden:   internalHidden,
-		DisabledSourcesHidden:   disabledHidden,
-		DirectSIEMSourcesHidden: directSIEMHidden,
-		ByGroup:                 byGroup,
-		BySourceType:            bySourceType,
-		ByZone:                  byZone,
-		BySeverity:              bySeverity,
-		ByCategory:              byCategory,
+		InternalSourcesHidden:    internalHidden,
+		DisabledSourcesHidden:    disabledHidden,
+		DirectSIEMSourcesHidden:  directSIEMHidden,
+		ByGroup:                  byGroup,
+		BySourceType:             bySourceType,
+		ByZone:                   byZone,
+		BySeverity:               bySeverity,
+		ByCategory:               byCategory,
 	}
 }
 
@@ -443,10 +446,10 @@ func (c *Catalog) ensureStateLocked(key string) *sourceState {
 	state := &sourceState{
 		SourceRecord: SourceRecord{
 			SourceKey:      key,
-			SeverityCounts:  map[string]int64{},
-			CategoryCounts:  map[string]int64{},
-			TopMessages:     []TopMessage{},
-			Group:           sourceutil.GroupForSourceType(strings.SplitN(key, ":", 2)[0]),
+			SeverityCounts: map[string]int64{},
+			CategoryCounts: map[string]int64{},
+			TopMessages:    []TopMessage{},
+			Group:          sourceutil.GroupForSourceType(strings.SplitN(key, ":", 2)[0]),
 		},
 		messageCounts: map[string]int64{},
 	}
@@ -493,7 +496,7 @@ func sourceKey(sourceType, assetIP, id string) string {
 
 func configuredZoneForType(sourceType string) string {
 	switch sourceutil.NormalizeSourceType(sourceType) {
-	case "influxdb", "opcua_gateway", "collector", "vault", "firewall", "ids":
+	case "influxdb", "opcua_dmz_gateway", "collector", "vault", "firewall", "ids":
 		return "DMZ"
 	default:
 		return "DMZ"

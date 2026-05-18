@@ -17,9 +17,10 @@ type Config struct {
 	SpoolFile      string
 	DataDir        string
 
-	IngestToken    string
-	GDSEventsToken string
-	LogLevel       slog.Level
+	IngestToken         string
+	GDSEventsToken      string
+	OPCUADMZEventsToken string
+	LogLevel            slog.Level
 
 	Splunk SplunkConfig
 	Syslog SyslogConfig
@@ -81,6 +82,7 @@ func Load() Config {
 		DataDir:              getenv("DATA_DIR", "/data"),
 		IngestToken:          strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN")),
 		GDSEventsToken:       loadEndpointToken("DMZ_COLLECTOR_GDS_EVENTS_TOKEN", "DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE", strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN"))),
+		OPCUADMZEventsToken:  loadEndpointToken("DMZ_COLLECTOR_OPCUA_DMZ_EVENTS_TOKEN", "DMZ_COLLECTOR_OPCUA_DMZ_EVENTS_TOKEN_FILE", strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN"))),
 		LogLevel:             parseLevel(getenv("LOG_LEVEL", "info")),
 		Splunk:               loadSplunk(),
 		Syslog:               loadSyslog(),

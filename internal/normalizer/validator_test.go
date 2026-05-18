@@ -51,6 +51,22 @@ func TestValidateAndNormalizeGDSAgentCanonicalization(t *testing.T) {
 	}
 }
 
+func TestValidateAndNormalizeOPCUADMZGatewayCanonicalization(t *testing.T) {
+	ev, err := ValidateAndNormalize(event.Event{
+		SourceType: "opcua_gateway",
+		Tags:       map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("ValidateAndNormalize returned error: %v", err)
+	}
+	if ev.SourceType != "opcua_dmz_gateway" {
+		t.Fatalf("expected source_type opcua_dmz_gateway, got %q", ev.SourceType)
+	}
+	if ev.Tags["splunk_sourcetype"] != "labshock:dmz:opcua_gateway" {
+		t.Fatalf("unexpected sourcetype tag: %#v", ev.Tags)
+	}
+}
+
 func TestValidateAndNormalizePLCRegression(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	ev, err := ValidateAndNormalize(event.Event{

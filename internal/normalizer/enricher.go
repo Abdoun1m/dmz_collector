@@ -31,7 +31,7 @@ func inferPurdueZone(e event.Event) string {
 		return "level1"
 	case "scada", "opcua", "ews":
 		return "level2"
-	case "firewall", "ids", "dmz_collector", "vault", "vault_agent", "influxdb", "opcua_gateway", "gds", "postgres_gds", "jumphost":
+	case "firewall", "ids", "dmz_collector", "vault", "vault_agent", "influxdb", "opcua_dmz_gateway", "gds", "postgres_gds", "jumphost":
 		return "dmz"
 	default:
 		return "ot"
