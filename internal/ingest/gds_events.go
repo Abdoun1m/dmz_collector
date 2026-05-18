@@ -659,7 +659,40 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 		}
 		return gdsClassification{"gds_client_pull_failed", "access_control", "error", "HIGH", true}
 	}
+	if class := classifyKnownGDSCompactAction(rec, msgText, et); class.Message != "" {
+		return class
+	}
 	return gdsClassification{"gds_event_unknown", "system", "info", "MEDIUM", false}
+}
+
+func classifyKnownGDSCompactAction(rec map[string]any, msgText, eventType string) gdsClassification {
+	candidates := []string{
+		firstString(rec, "gds_action"),
+		firstString(rec, "action"),
+		eventType,
+		msgText,
+		firstString(rec, "log_message"),
+	}
+	if rawMap := mapAny(rec["raw"]); len(rawMap) > 0 {
+		candidates = append(candidates, firstString(rawMap, "gds_action"), firstString(rawMap, "action"), firstString(rawMap, "log_message"))
+	}
+	if rawText := strings.TrimSpace(stringAny(rec["raw"])); rawText != "" {
+		candidates = append(candidates, rawText, parseGDSRawText(rawText))
+		var rawObj map[string]any
+		if err := json.Unmarshal([]byte(rawText), &rawObj); err == nil {
+			candidates = append(candidates, firstString(rawObj, "gds_action"), firstString(rawObj, "action"), firstString(rawObj, "log_message"))
+		}
+	}
+	for _, candidate := range candidates {
+		_, action := splitGDSFamilyAction(strings.TrimSpace(candidate))
+		if class := classifyGDSDMZAction(action); class.Message != "gds_event_unknown" {
+			return class
+		}
+		if class := classifyGDSDMZAction(candidate); class.Message != "gds_event_unknown" {
+			return class
+		}
+	}
+	return gdsClassification{}
 }
 
 func gdsSafeFields(rec map[string]any) map[string]any {

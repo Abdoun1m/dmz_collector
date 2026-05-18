@@ -358,6 +358,45 @@ func TestNormalizeGDSEventDMZDirectFamilyAction(t *testing.T) {
 	}
 }
 
+func TestNormalizeGDSEventCompactActionFallbackShapes(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		message string
+	}{
+		{
+			name:    "top level gds action with unknown message",
+			payload: `{"message":"gds_event_unknown","gds_action":"agent_auth_success","gds_family":"gds_audit_event"}`,
+			message: "gds_agent_auth_success",
+		},
+		{
+			name:    "raw object gds action",
+			payload: `{"message":"gds_event_unknown","raw":{"gds_action":"mtls_client_identity_success","gds_family":"gds_audit_event"}}`,
+			message: "gds_mtls_client_identity_success",
+		},
+		{
+			name:    "raw string log message",
+			payload: `{"message":"gds_event_unknown","raw":"{\"gds_action\":\"trustlist_artifact_sig_read\",\"gds_family\":\"gds_audit_event\"}"}`,
+			message: "gds_client_pull_success",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev, err := NormalizeGDSEvent([]byte(tt.payload))
+			if err != nil {
+				t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+			}
+			if ev.Message != tt.message {
+				t.Fatalf("expected %s, got %s", tt.message, ev.Message)
+			}
+			if ev.Tags["risk_level"] != "LOW" {
+				t.Fatalf("expected LOW risk, got %#v", ev.Tags["risk_level"])
+			}
+		})
+	}
+}
+
 func extractExpectedAction(logMessage string) string {
 	parts := strings.SplitN(logMessage, ":", 2)
 	if len(parts) == 2 {
