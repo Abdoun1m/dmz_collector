@@ -120,11 +120,55 @@ Available now:
 - Firewall syslog listener (UDP): `0.0.0.0:5514` (configurable)
 - IDS alert endpoint: `POST /ids/alerts` with Suricata-like EVE alert payload
 - Optional OT subscribe mode via SSE (`OT_SSE_ENABLED=true`)
+- DMZ Collector self-telemetry (`DMZ_SELF_TELEMETRY_ENABLED=true`) emits `source_type=dmz_collector` events for startup, heartbeat, HEC failures/recovery, and spool growth.
 
 Normalization:
 
 - Firewall -> `source_type=firewall`
 - IDS -> `source_type=ids`, `event_category=security`
+
+## 9.1 DMZ Collector Self-Telemetry
+
+Self-telemetry is the first DMZ component to enable and validate. It uses the same Splunk index as the rest of the pipeline:
+
+- `index=ot_security`
+- `zone=DMZ`
+- `source_type=dmz_collector`
+- `sourcetype=labshock:dmz:dmz_collector`
+
+Configuration:
+
+- `DMZ_SELF_TELEMETRY_ENABLED=true`
+- `DMZ_SELF_TELEMETRY_INTERVAL_SECONDS=60`
+- `DMZ_SELF_TELEMETRY_SPOOL_WARN_EVENTS=1000`
+- `DMZ_SELF_TELEMETRY_SPOOL_CRITICAL_EVENTS=10000`
+- `DMZ_SELF_TELEMETRY_EVENT_FLOW=true`
+
+Splunk validation:
+
+```spl
+index=ot_security zone="DMZ" source_type="dmz_collector"
+| stats count by sourcetype source_type asset_name message event_category severity
+```
+
+Schema and tags:
+
+```spl
+index=ot_security zone="DMZ" source_type="dmz_collector"
+| table _time sourcetype source_type asset_name asset_ip severity event_category message tags.normalized tags.parser_version tags.splunk_sourcetype tags.siem_index_hint tags.alert_candidate raw
+| sort - _time
+```
+
+Health/staleness:
+
+```spl
+index=ot_security zone="DMZ" source_type="dmz_collector"
+| stats latest(_time) as last_seen count by message event_category severity
+| eval staleness_min=round((now()-last_seen)/60,1)
+| eval health=case(staleness_min<=2,"FRESH",staleness_min<=10,"WARN",true(),"STALE")
+| convert ctime(last_seen)
+| sort staleness_min
+```
 
 ## 10. API Endpoints
 

@@ -34,6 +34,8 @@ type Config struct {
 	EnableOTSSE  bool
 
 	QueueBatchSize int
+
+	SelfTelemetry SelfTelemetryConfig
 }
 
 type SplunkConfig struct {
@@ -60,6 +62,14 @@ type VaultConfig struct {
 	SecretPath string
 }
 
+type SelfTelemetryConfig struct {
+	Enabled               bool
+	Interval              time.Duration
+	SpoolWarnEvents       int64
+	SpoolCriticalEvents   int64
+	EmitEventFlowCounters bool
+}
+
 func Load() Config {
 	return Config{
 		ServiceName:          getenv("SERVICE_NAME", "dmz_collector"),
@@ -81,6 +91,7 @@ func Load() Config {
 		OTEventLimit:         parseInt(getenv("OT_PULL_EVENT_LIMIT", "5000"), 5000),
 		EnableOTSSE:          parseBool(getenv("OT_SSE_ENABLED", "false")),
 		QueueBatchSize:       parseInt(getenv("FORWARD_BATCH_SIZE", "50"), 50),
+		SelfTelemetry:        loadSelfTelemetry(),
 	}
 }
 
@@ -111,6 +122,16 @@ func loadVault() VaultConfig {
 		Addr:       getenv("VAULT_ADDR", "http://192.168.10.10:8200"),
 		Token:      getenv("VAULT_TOKEN", ""),
 		SecretPath: getenv("VAULT_SECRET_PATH", "secret/data/dmz_collector/splunk"),
+	}
+}
+
+func loadSelfTelemetry() SelfTelemetryConfig {
+	return SelfTelemetryConfig{
+		Enabled:               parseBool(getenv("DMZ_SELF_TELEMETRY_ENABLED", "true")),
+		Interval:              time.Duration(parseInt(getenv("DMZ_SELF_TELEMETRY_INTERVAL_SECONDS", "60"), 60)) * time.Second,
+		SpoolWarnEvents:       int64(parseInt(getenv("DMZ_SELF_TELEMETRY_SPOOL_WARN_EVENTS", "1000"), 1000)),
+		SpoolCriticalEvents:   int64(parseInt(getenv("DMZ_SELF_TELEMETRY_SPOOL_CRITICAL_EVENTS", "10000"), 10000)),
+		EmitEventFlowCounters: parseBool(getenv("DMZ_SELF_TELEMETRY_EVENT_FLOW", "true")),
 	}
 }
 

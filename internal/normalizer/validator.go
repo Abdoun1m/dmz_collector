@@ -47,7 +47,7 @@ func applySourceSpecificNormalization(e *event.Event, originalSourceType string)
 		} else {
 			e.EventCategory = "network"
 		}
-	case "gds_agent", "plc", "opcua", "scada", "ews", "ids":
+	case "gds_agent", "plc", "opcua", "scada", "ews", "ids", "dmz_collector", "vault", "vault_agent", "influxdb", "opcua_gateway", "gds", "postgres_gds", "jumphost":
 		if current, ok := e.Tags["splunk_sourcetype"].(string); !ok || strings.TrimSpace(current) == "" || strings.EqualFold(strings.TrimSpace(current), "labshock:ot:unknown") {
 			e.Tags["splunk_sourcetype"] = sourceutil.SplunkSourcetypeFor(e.SourceType)
 		}
@@ -78,4 +78,3 @@ func parseRFC3339Any(v string) (time.Time, error) {
 	}
 	return time.Parse(time.RFC3339, v)
 }
-

@@ -31,6 +31,16 @@ func NormalizeSourceType(raw string) string {
 		return "ids"
 	case "influxdb":
 		return "influxdb"
+	case "dmz_collector", "dmz-collector":
+		return "dmz_collector"
+	case "vault_agent", "vault-agent":
+		return "vault_agent"
+	case "gds":
+		return "gds"
+	case "postgres_gds", "postgres-gds":
+		return "postgres_gds"
+	case "jumphost", "jump_host", "jump-host":
+		return "jumphost"
 	case "ot_collector":
 		return "collector"
 	case "collector":
@@ -60,7 +70,7 @@ func GroupForSourceType(sourceType string) string {
 		return "Engineering Workstation"
 	case "ids":
 		return "IDS / Future Monitoring"
-	case "influxdb", "opcua_gateway", "collector", "vault":
+	case "influxdb", "opcua_gateway", "collector", "vault", "dmz_collector", "vault_agent", "gds", "postgres_gds", "jumphost":
 		return "DMZ Services"
 	default:
 		return "Unknown / Other"
@@ -83,6 +93,22 @@ func SplunkSourcetypeFor(sourceType string) string {
 		return "labshock:ot:ews"
 	case "ids":
 		return "labshock:ot:ids"
+	case "dmz_collector":
+		return "labshock:dmz:dmz_collector"
+	case "vault":
+		return "labshock:dmz:vault"
+	case "vault_agent":
+		return "labshock:dmz:vault_agent"
+	case "influxdb":
+		return "labshock:dmz:influxdb"
+	case "opcua_gateway":
+		return "labshock:dmz:opcua_gateway"
+	case "gds":
+		return "labshock:dmz:gds"
+	case "postgres_gds":
+		return "labshock:dmz:postgres_gds"
+	case "jumphost":
+		return "labshock:dmz:jumphost"
 	default:
 		return "labshock:ot:unknown"
 	}
@@ -90,7 +116,7 @@ func SplunkSourcetypeFor(sourceType string) string {
 
 func IsInternalDMZSourceType(sourceType string) bool {
 	switch NormalizeSourceType(sourceType) {
-	case "influxdb", "opcua_gateway", "collector", "vault":
+	case "influxdb", "opcua_gateway", "collector", "vault", "dmz_collector", "vault_agent", "gds", "postgres_gds", "jumphost":
 		return true
 	default:
 		return false

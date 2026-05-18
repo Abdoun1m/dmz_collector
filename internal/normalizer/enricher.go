@@ -31,7 +31,7 @@ func inferPurdueZone(e event.Event) string {
 		return "level1"
 	case "scada", "opcua", "ews":
 		return "level2"
-	case "firewall", "ids":
+	case "firewall", "ids", "dmz_collector", "vault", "vault_agent", "influxdb", "opcua_gateway", "gds", "postgres_gds", "jumphost":
 		return "dmz"
 	default:
 		return "ot"
@@ -70,6 +70,18 @@ func isHighValue(e event.Event) bool {
 	if st == "ids" || st == "firewall" {
 		return true
 	}
+	if v, ok := e.Tags["alert_candidate"]; ok {
+		switch t := v.(type) {
+		case bool:
+			if t {
+				return true
+			}
+		case string:
+			if strings.EqualFold(t, "true") {
+				return true
+			}
+		}
+	}
 	if v, ok := e.Tags["sensitive_action"]; ok {
 		switch t := v.(type) {
 		case bool:
@@ -80,4 +92,3 @@ func isHighValue(e event.Event) bool {
 	}
 	return false
 }
-

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Abdoun1m/dmz_collector/internal/api"
+	"github.com/Abdoun1m/dmz_collector/internal/buffer"
 	"github.com/Abdoun1m/dmz_collector/internal/config"
 	"github.com/Abdoun1m/dmz_collector/internal/event"
 	"github.com/Abdoun1m/dmz_collector/internal/forwarder"
@@ -23,13 +24,24 @@ func newTestApp(t *testing.T) *App {
 	t.Helper()
 	base := t.TempDir()
 	store := storage.NewJSONLStore(filepath.Join(base, "events.jsonl"))
+	fwdStore, err := config.NewForwardingStore(filepath.Join(base, "forwarding.json"), config.Config{})
+	if err != nil {
+		t.Fatalf("failed to create forwarding store: %v", err)
+	}
 	app := &App{
 		cfg:           config.Config{},
 		store:         store,
+		spool:         buffer.NewSpool(filepath.Join(base, "spool", "events.jsonl")),
+		queue:         buffer.NewQueue(100),
 		stats:         stats.New(),
 		streamHub:     api.NewStreamHub(),
+		fwdStore:      fwdStore,
 		splunkFwd:     forwarder.NewSplunkHECForwarder(false, 2*time.Second),
 		sourceCatalog: sourcecatalog.New("http://ot.example"),
+		seenIDs:       map[string]struct{}{},
+		inflight:      map[string]struct{}{},
+		offsetByID:    map[string]int64{},
+		startedAt:     time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	return app
 }
@@ -249,7 +261,7 @@ func TestInternalSourcesOnlyExposeDMZSupportSources(t *testing.T) {
 	}
 	for _, item := range items {
 		switch item.Name {
-		case "OT Collector", "InfluxDB", "OPC UA DMZ Gateway", "Vault", "Firewall Future", "IDS Future":
+		case "OT Collector", "DMZ Collector", "InfluxDB", "OPC UA DMZ Gateway", "Vault", "Vault Agent", "LabShock GDS", "PostgreSQL GDS", "Jump Host", "Firewall Future", "IDS Future":
 		default:
 			t.Fatalf("unexpected record in internal sources: %#v", item)
 		}
@@ -424,5 +436,45 @@ func TestInternalPayloadSourcetypesStayCanonical(t *testing.T) {
 				t.Fatalf("expected %s sourcetype, got %#v", tt.expectedType, payload["sourcetype"])
 			}
 		})
+	}
+}
+
+func TestSelfTelemetryUsesDMZSourcetypeAndSchema(t *testing.T) {
+	hecServer, capture := newMockHECServer(t, http.StatusOK)
+	defer hecServer.Close()
+
+	app := newTestApp(t)
+	app.cfg.Splunk = config.SplunkConfig{Enabled: true, URL: hecServer.URL, Token: "test", Index: "ot_security", Source: "labshock_dmz_collector", VerifyTLS: false}
+	app.streamHub = api.NewStreamHub()
+
+	if err := app.emitSelfTelemetry("dmz_collector_hec_failure", "critical", "error", map[string]any{
+		"queue_depth":       int64(7),
+		"spool_event_count": int64(7),
+		"hec_error":         "connection refused",
+	}); err != nil {
+		t.Fatalf("self telemetry failed: %v", err)
+	}
+
+	bodies := waitForRequests(t, capture, 1, 3*time.Second)
+	payload := bodies[0]
+	if payload["index"] != "ot_security" {
+		t.Fatalf("expected ot_security index, got %#v", payload["index"])
+	}
+	if payload["sourcetype"] != "labshock:dmz:dmz_collector" {
+		t.Fatalf("expected dmz collector sourcetype, got %#v", payload["sourcetype"])
+	}
+	eventBody, ok := payload["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected event object, got %#v", payload["event"])
+	}
+	if eventBody["zone"] != "DMZ" || eventBody["source_type"] != "dmz_collector" || eventBody["message"] != "dmz_collector_hec_failure" {
+		t.Fatalf("unexpected self telemetry body: %#v", eventBody)
+	}
+	tags, ok := eventBody["tags"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected tags object, got %#v", eventBody["tags"])
+	}
+	if tags["normalized"] != true || tags["parser_version"] != "v2.logs_by_sources_md" || tags["alert_candidate"] != true {
+		t.Fatalf("unexpected self telemetry tags: %#v", tags)
 	}
 }

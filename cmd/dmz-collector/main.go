@@ -112,6 +112,7 @@ func main() {
 	go app.runForwardWorker(ctx)
 	go app.runOTPull(ctx)
 	go app.runOTSSE(ctx)
+	go app.runSelfTelemetry(ctx)
 
 	if cfg.EnableFirewallSyslog {
 		go func() {
@@ -696,6 +697,159 @@ func (a *App) runOTSSE(ctx context.Context) {
 			_, _, _ = a.ingestOne(ev)
 		}
 		_ = resp.Body.Close()
+	}
+}
+
+func (a *App) runSelfTelemetry(ctx context.Context) {
+	cfg := a.cfg.SelfTelemetry
+	if !cfg.Enabled {
+		return
+	}
+	if cfg.Interval <= 0 {
+		cfg.Interval = 60 * time.Second
+	}
+	_ = a.emitSelfTelemetry("dmz_collector_started", "info", "system_health", map[string]any{
+		"queue_depth":       a.queueDepth(),
+		"spool_event_count": a.queueDepth(),
+		"started_at":        a.startedAt,
+	})
+
+	ticker := time.NewTicker(cfg.Interval)
+	defer ticker.Stop()
+	var lastTotal int64
+	var lastForwarded int64
+	var lastFailed int64
+	var hecWasFailed bool
+	for {
+		select {
+		case <-ctx.Done():
+			_ = a.emitSelfTelemetry("dmz_collector_heartbeat", "info", "system_health", map[string]any{"status": "shutdown"})
+			return
+		case <-ticker.C:
+			q := a.queueStats()
+			total := a.stats.TotalReceived()
+			splunk := a.splunkStats()
+			splunkSuccesses := int64FromAny(splunk["splunk_success_count"])
+			splunkFailures := int64FromAny(splunk["splunk_failed_count"])
+			raw := map[string]any{
+				"events_received":    total,
+				"events_forwarded":   splunkSuccesses,
+				"events_dropped":     q.Failed,
+				"spool_event_count":  q.Queued,
+				"queue_depth":        q.Queued,
+				"hec_url":            splunk["splunk_hec_url"],
+				"hec_error":          splunk["splunk_last_error"],
+				"splunk_successes":   splunkSuccesses,
+				"splunk_failures":    splunkFailures,
+				"last_success_at":    splunk["splunk_last_success_at"],
+				"last_failure_at":    splunk["splunk_last_failure_at"],
+				"latest_event_time":  a.stats.LatestEventTimestamp(),
+			}
+			_ = a.emitSelfTelemetry("dmz_collector_heartbeat", "info", "system_health", raw)
+			if cfg.EmitEventFlowCounters && total > lastTotal {
+				raw["events_received_delta"] = total - lastTotal
+				_ = a.emitSelfTelemetry("dmz_collector_event_received", "info", "data_collection", raw)
+			}
+			if cfg.EmitEventFlowCounters && splunkSuccesses > lastForwarded {
+				raw["events_forwarded_delta"] = splunkSuccesses - lastForwarded
+				_ = a.emitSelfTelemetry("dmz_collector_event_forwarded", "info", "data_collection", raw)
+			}
+			if splunkFailures > lastFailed {
+				_ = a.emitSelfTelemetry("dmz_collector_hec_failure", "critical", "error", raw)
+				hecWasFailed = true
+			} else if hecWasFailed && splunkFailures == lastFailed && splunkSuccesses > lastForwarded {
+				_ = a.emitSelfTelemetry("dmz_collector_hec_recovered", "info", "system_health", raw)
+				hecWasFailed = false
+			}
+			if q.Queued >= cfg.SpoolCriticalEvents {
+				_ = a.emitSelfTelemetry("dmz_collector_spool_overflow", "critical", "error", raw)
+			} else if q.Queued >= cfg.SpoolWarnEvents {
+				_ = a.emitSelfTelemetry("dmz_collector_spool_growing", "warning", "system_health", raw)
+			}
+			lastTotal = a.stats.TotalReceived()
+			lastForwarded = int64FromAny(a.splunkStats()["splunk_success_count"])
+			lastFailed = int64FromAny(a.splunkStats()["splunk_failed_count"])
+		}
+	}
+}
+
+func (a *App) emitSelfTelemetry(message, severity, category string, raw map[string]any) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	rawJSON, _ := json.Marshal(raw)
+	risk := "LOW"
+	if severity == "critical" {
+		risk = "CRITICAL"
+	} else if severity == "warning" || severity == "error" {
+		risk = "HIGH"
+	}
+	tags := map[string]any{
+		"component":               "dmz_collector",
+		"zone":                    "DMZ",
+		"collector_decision_hint":  "sample_or_drop",
+		"risk_level":              risk,
+		"normalized":              true,
+		"normalization_source":     "logs_by_sources_md",
+		"parser_version":          "v2.logs_by_sources_md",
+		"splunk_sourcetype":       "labshock:dmz:dmz_collector",
+		"siem_index_hint":         "ot_security",
+	}
+	if isSelfTelemetryProtected(message) {
+		tags["alert_candidate"] = true
+		tags["collector_decision_hint"] = "store_forward"
+	}
+	for k, v := range raw {
+		if _, exists := tags[k]; !exists {
+			tags[k] = v
+		}
+	}
+	ev := event.Event{
+		Timestamp:     now,
+		ReceivedAt:    now,
+		Zone:          "DMZ",
+		Source:        "labshock_dmz_collector",
+		SourceType:    "dmz_collector",
+		AssetName:     "DMZ Collector",
+		AssetIP:       "192.168.10.70",
+		Severity:      severity,
+		Protocol:      "self_telemetry",
+		EventCategory: category,
+		Message:       message,
+		Raw:           string(rawJSON),
+		Tags:          tags,
+	}
+	return a.IngestSingle(ev)
+}
+
+func isSelfTelemetryProtected(message string) bool {
+	switch message {
+	case "dmz_collector_hec_failure", "dmz_collector_spool_overflow", "dmz_collector_normalization_gap":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) queueStats() buffer.QueueStats {
+	if a.queue == nil {
+		return buffer.QueueStats{}
+	}
+	return a.queue.Snapshot()
+}
+
+func (a *App) queueDepth() int64 {
+	return a.queueStats().Queued
+}
+
+func int64FromAny(v any) int64 {
+	switch t := v.(type) {
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case float64:
+		return int64(t)
+	default:
+		return 0
 	}
 }
 
