@@ -42,6 +42,9 @@ func NormalizeVaultAuditMany(raw []byte) ([]event.Event, error) {
 			if err != nil {
 				return nil, err
 			}
+			if ev.Message == "" {
+				continue
+			}
 			out = append(out, ev)
 		}
 		return out, nil
@@ -50,6 +53,9 @@ func NormalizeVaultAuditMany(raw []byte) ([]event.Event, error) {
 	if raw[0] == '{' {
 		ev, err := NormalizeVaultAudit(raw)
 		if err == nil {
+			if ev.Message == "" {
+				return nil, fmt.Errorf("vault audit record suppressed")
+			}
 			return []event.Event{ev}, nil
 		}
 		if !bytes.Contains(raw, []byte{'\n'}) {
@@ -68,6 +74,9 @@ func NormalizeVaultAuditMany(raw []byte) ([]event.Event, error) {
 		ev, err := NormalizeVaultAudit(line)
 		if err != nil {
 			return nil, err
+		}
+		if ev.Message == "" {
+			continue
 		}
 		out = append(out, ev)
 	}
@@ -99,6 +108,9 @@ func NormalizeVaultAudit(raw []byte) (event.Event, error) {
 	mountType := stringValue(req, "mount_type")
 
 	class := classifyVaultAudit(path, operation, errText, displayName, auditType)
+	if class.Message == "" {
+		return event.Event{}, nil
+	}
 	safeRaw := map[string]any{
 		"audit_type":            auditType,
 		"vault_operation":       operation,
@@ -179,6 +191,9 @@ func classifyVaultAudit(path, operation, errText, displayName, auditType string)
 	op := strings.ToLower(operation)
 	errLower := strings.ToLower(errText)
 
+	if auditType == "request" && errText == "" {
+		return vaultAuditClassification{}
+	}
 	if strings.HasPrefix(p, "sys/audit") && errText != "" {
 		return vaultAuditClassification{"vault_audit_log_failure", "security", "critical", "CRITICAL", true}
 	}
@@ -196,6 +211,12 @@ func classifyVaultAudit(path, operation, errText, displayName, auditType string)
 	}
 	if strings.Contains(p, "/sign/") || strings.HasSuffix(p, "/sign") {
 		return vaultAuditClassification{"vault_pki_sign", "pki_lifecycle", "info", "LOW", false}
+	}
+	if strings.HasSuffix(p, "/ca_chain") || strings.Contains(p, "/ca_chain/") {
+		return vaultAuditClassification{"vault_pki_ca_chain_read", "pki_validation", "info", "LOW", false}
+	}
+	if strings.HasSuffix(p, "/crl/pem") || strings.Contains(p, "/crl/") {
+		return vaultAuditClassification{"vault_pki_crl_read", "pki_validation", "info", "LOW", false}
 	}
 	if strings.Contains(p, "/tidy") || strings.HasSuffix(p, "tidy") {
 		return vaultAuditClassification{"vault_pki_tidy", "pki_lifecycle", "info", "LOW", false}
