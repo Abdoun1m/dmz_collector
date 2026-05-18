@@ -30,7 +30,7 @@ func TestNormalizeGDSEventCertificateIssued(t *testing.T) {
 	if ev.Message != "gds_certificate_issued" || ev.EventCategory != "certificate_lifecycle" || ev.Severity != "info" {
 		t.Fatalf("unexpected classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 	}
-	if ev.Tags["splunk_sourcetype"] != "labshock:dmz:gds" || ev.Tags["alert_candidate"] != true {
+	if ev.Tags["splunk_sourcetype"] != "labshock:dmz:gds" || ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
 		t.Fatalf("unexpected tags: %#v", ev.Tags)
 	}
 	if ev.Tags["application_uri"] != "urn:dataprotect:opcua:dmz-gateway-client" || ev.Tags["fingerprint_sha256"] != "abc123" {
@@ -47,8 +47,8 @@ func TestNormalizeGDSEventTrustListPublishedFromJSONLog(t *testing.T) {
 	if ev.Message != "gds_trust_list_published" || ev.EventCategory != "pki_trust_sync" {
 		t.Fatalf("unexpected trust-list classification: %s %s", ev.Message, ev.EventCategory)
 	}
-	if ev.Tags["alert_candidate"] != true {
-		t.Fatalf("expected alert candidate tag, got %#v", ev.Tags)
+	if ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
+		t.Fatalf("expected parser version v3, got %#v", ev.Tags["parser_version"])
 	}
 }
 
@@ -66,7 +66,7 @@ func TestNormalizeGDSEventUnauthorizedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
 	}
-	if ev.Message != "gds_unauthorized_request" || ev.EventCategory != "security" || ev.Severity != "warning" {
+	if ev.Message != "gds_unauthorized_request" || ev.EventCategory != "access_control" || ev.Severity != "warning" {
 		t.Fatalf("unexpected auth failure classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 	}
 	if ev.Tags["alert_candidate"] != true || ev.Tags["source_ip"] != "192.168.10.20" {
@@ -84,7 +84,7 @@ func TestNormalizeGDSEventDBHealthFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
 	}
-	if ev.Message != "gds_db_disconnected" || ev.EventCategory != "error" || ev.Severity != "critical" {
+	if ev.Message != "gds_db_disconnected" || ev.EventCategory != "system_health" || ev.Severity != "error" {
 		t.Fatalf("unexpected DB classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 	}
 	if ev.Tags["alert_candidate"] != true {
@@ -105,11 +105,11 @@ func TestNormalizeGDSEventDBSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
 	}
-	if ev.Message != "gds_db_snapshot" || ev.EventCategory != "system_health" || ev.Severity != "info" {
+	if ev.Message != "gds_db_connected" || ev.EventCategory != "system_health" || ev.Severity != "info" {
 		t.Fatalf("unexpected DB snapshot classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 	}
-	if ev.Tags["alert_candidate"] == true {
-		t.Fatalf("DB snapshot should not be alert candidate: %#v", ev.Tags)
+	if ev.Tags["gds_action"] != "gds_db_snapshot" {
+		t.Fatalf("DB snapshot should preserve action tag: %#v", ev.Tags)
 	}
 }
 
@@ -123,7 +123,7 @@ func TestNormalizeGDSEventExplicitHealthEvents(t *testing.T) {
 	}{
 		{"gds_heartbeat", "gds_heartbeat", "system_health", "info", false},
 		{"gds_db_connected", "gds_db_connected", "system_health", "info", false},
-		{"gds_db_disconnected", "gds_db_disconnected", "error", "critical", true},
+		{"gds_db_disconnected", "gds_db_disconnected", "system_health", "error", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.eventType, func(t *testing.T) {
@@ -152,6 +152,45 @@ func TestNormalizeGDSTextLineStartup(t *testing.T) {
 	}
 	if events[0].Message != "gds_started" || events[0].EventCategory != "system_health" {
 		t.Fatalf("unexpected text classification: %s %s", events[0].Message, events[0].EventCategory)
+	}
+}
+
+func TestNormalizeGDSEventAppJSONStartup(t *testing.T) {
+	raw := []byte(`{"ts":"2026-05-18T13:07:00Z","level":"INFO","logger":"gds.api","msg":"artifact scan loop started interval_seconds=30"}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "gds_started" || ev.EventCategory != "system_health" || ev.Severity != "info" {
+		t.Fatalf("unexpected app JSON startup classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+}
+
+func TestNormalizeGDSEventHealthSuccess(t *testing.T) {
+	raw := []byte(`{"status":"ok","checks":{"postgres":{"ok":true}}}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "gds_db_connected" || ev.EventCategory != "system_health" || ev.Severity != "info" {
+		t.Fatalf("unexpected health success classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+}
+
+func TestNormalizeGDSTextLineAPIReadSuccess(t *testing.T) {
+	events, err := NormalizeGDSEventsMany([]byte("GET /api/v1/trustlists/OT/server/artifact HTTP/1.1 200"))
+	if err != nil {
+		t.Fatalf("NormalizeGDSEventsMany returned error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.Message != "gds_client_pull_success" || ev.EventCategory != "pki_trust_sync" || ev.Severity != "info" {
+		t.Fatalf("unexpected API read classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Tags["http_method"] != "GET" || ev.Tags["http_path"] != "/api/v1/trustlists/OT/server/artifact" || ev.Tags["http_status"] != "200" || ev.Tags["endpoint_family"] != "trust_artifact" {
+		t.Fatalf("expected parsed HTTP tags, got %#v", ev.Tags)
 	}
 }
 
@@ -195,13 +234,14 @@ func TestNormalizeGDSEventDMZControlPlaneMappings(t *testing.T) {
 	}{
 		{"agent auth success", "gds_audit_event: agent_auth_success", "gds_agent_auth_success", "access_control", "LOW"},
 		{"mtls identity success", "gds_audit_event: mtls_client_identity_success", "gds_mtls_client_identity_success", "access_control", "LOW"},
-		{"trustlist read", "gds_audit_event: trustlist_artifact_read", "gds_trustlist_artifact_read", "pki_trust_sync", "LOW"},
-		{"trustlist signature read", "gds_audit_event: trustlist_artifact_sig_read", "gds_trustlist_artifact_signature_read", "pki_trust_sync", "LOW"},
-		{"artifact regenerated", "gds_trust_list_published: artifact_regenerated", "gds_trust_artifact_regenerated", "pki_trust_sync", "MEDIUM"},
-		{"certificate drift read", "gds_audit_event: certificate_drift_read", "gds_certificate_drift_read", "pki_validation", "LOW"},
-		{"certificate telemetry read", "gds_audit_event: certificate_telemetry_read", "gds_certificate_telemetry_read", "pki_validation", "LOW"},
+		{"mtls metrics read", "gds_audit_event: mtls_metrics_read", "gds_client_pull_success", "access_control", "LOW"},
+		{"trustlist read", "gds_audit_event: trustlist_artifact_read", "gds_client_pull_success", "pki_trust_sync", "LOW"},
+		{"trustlist signature read", "gds_audit_event: trustlist_artifact_sig_read", "gds_client_pull_success", "pki_trust_sync", "LOW"},
+		{"artifact regenerated", "gds_trust_list_published: artifact_regenerated", "gds_trust_list_published", "pki_trust_sync", "MEDIUM"},
+		{"certificate drift read", "gds_audit_event: certificate_drift_read", "gds_client_pull_success", "pki_validation", "LOW"},
+		{"certificate telemetry read", "gds_audit_event: certificate_telemetry_read", "gds_client_pull_success", "pki_validation", "LOW"},
 		{"db connected", "gds_db_connected", "gds_db_connected", "system_health", "LOW"},
-		{"db snapshot", "gds_db_snapshot", "gds_db_snapshot", "system_health", "LOW"},
+		{"db snapshot", "gds_db_snapshot", "gds_db_connected", "system_health", "LOW"},
 		{"heartbeat", "gds_heartbeat", "gds_heartbeat", "system_health", "LOW"},
 	}
 
@@ -215,13 +255,13 @@ func TestNormalizeGDSEventDMZControlPlaneMappings(t *testing.T) {
 			if ev.Message != tt.expected || ev.EventCategory != tt.category || ev.Severity != "info" {
 				t.Fatalf("unexpected classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 			}
-			if ev.Tags["gds_action"] != extractExpectedAction(tt.logMessage) {
+				if ev.Tags["gds_action"] != extractExpectedAction(tt.logMessage) {
 				t.Fatalf("unexpected gds_action tag: %#v", ev.Tags["gds_action"])
 			}
 			if ev.Tags["risk_level"] != tt.risk {
 				t.Fatalf("unexpected risk_level tag: %#v", ev.Tags["risk_level"])
 			}
-			if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage {
+				if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage || ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
 				t.Fatalf("expected parsed tags and original log message, got %#v", ev.Tags)
 			}
 		})
@@ -252,13 +292,13 @@ func TestNormalizeGDSEventDMZExtractsLogMessageFromRawVariants(t *testing.T) {
 		{
 			name:       "raw object",
 			payload:    `{"raw":{"log_message":"gds_audit_event: trustlist_artifact_read"}}`,
-			expected:   "gds_trustlist_artifact_read",
+			expected:   "gds_client_pull_success",
 			expectedFM: "gds_audit_event",
 		},
 		{
 			name:       "raw json string",
 			payload:    `{"raw":"{\"log_message\":\"gds_audit_event: trustlist_artifact_sig_read\"}"}`,
-			expected:   "gds_trustlist_artifact_signature_read",
+			expected:   "gds_client_pull_success",
 			expectedFM: "gds_audit_event",
 		},
 		{
@@ -300,14 +340,14 @@ func TestNormalizeGDSEventCanonicalMappingsByEventType(t *testing.T) {
 		message   string
 		category  string
 	}{
-		{"gds_client_registered", "application_register", "gds_client_registered", "pki_lifecycle"},
-		{"gds_enrollment_request_request_created", "certificate_request_created", "gds_enrollment_request", "pki_lifecycle"},
-		{"gds_enrollment_request_renewal_requested", "certificate_renewal_requested", "gds_enrollment_request", "pki_lifecycle"},
-		{"gds_enrollment_approved_csr_validated", "csr_validated", "gds_enrollment_approved", "pki_lifecycle"},
-		{"gds_enrollment_approved_component_complete", "component_enrollment_completed", "gds_enrollment_approved", "pki_lifecycle"},
-		{"gds_enrollment_failed_csr_rejected", "csr_rejected", "gds_enrollment_failed", "pki_lifecycle"},
-		{"gds_enrollment_failed_issue_failed", "certificate_issue_failed", "gds_enrollment_failed", "pki_lifecycle"},
-		{"gds_enrollment_failed_renewal_failed", "certificate_renewal_failed", "gds_enrollment_failed", "pki_lifecycle"},
+		{"gds_client_registered", "application_register", "gds_client_registered", "access_control"},
+		{"gds_enrollment_request_request_created", "certificate_request_created", "gds_enrollment_request", "certificate_lifecycle"},
+		{"gds_enrollment_request_renewal_requested", "certificate_renewal_requested", "gds_enrollment_request", "certificate_lifecycle"},
+		{"gds_enrollment_approved_csr_validated", "csr_validated", "gds_enrollment_approved", "certificate_lifecycle"},
+		{"gds_enrollment_approved_component_complete", "component_enrollment_completed", "gds_enrollment_approved", "certificate_lifecycle"},
+		{"gds_enrollment_failed_csr_rejected", "csr_rejected", "gds_enrollment_failed", "certificate_lifecycle"},
+		{"gds_enrollment_failed_issue_failed", "certificate_issue_failed", "gds_enrollment_failed", "certificate_lifecycle"},
+		{"gds_enrollment_failed_renewal_failed", "certificate_renewal_failed", "gds_enrollment_failed", "certificate_lifecycle"},
 		{"gds_certificate_issued", "certificate_issued", "gds_certificate_issued", "certificate_lifecycle"},
 		{"gds_certificate_renewed", "certificate_renewal_packaged", "gds_certificate_renewed", "certificate_lifecycle"},
 		{"gds_certificate_renewed_schema", "labshock_gds_component_renewal_result_v1", "gds_certificate_renewed", "certificate_lifecycle"},
@@ -321,11 +361,11 @@ func TestNormalizeGDSEventCanonicalMappingsByEventType(t *testing.T) {
 		{"gds_client_pull_success_material_read", "component_trust_material_read", "gds_client_pull_success", "pki_trust_sync"},
 		{"gds_client_pull_success_manifest_read", "package_manifest_read", "gds_client_pull_success", "pki_trust_sync"},
 		{"gds_client_pull_success_package_read", "certificate_package_read", "gds_client_pull_success", "pki_trust_sync"},
-		{"gds_unauthorized_request_agent_auth_failure", "agent_auth_failure", "gds_unauthorized_request", "security"},
-		{"gds_unauthorized_request_agent_unauthorized", "agent_unauthorized_pull", "gds_unauthorized_request", "security"},
-		{"gds_unauthorized_request_mtls_failure", "mtls_client_identity_failure", "gds_unauthorized_request", "security"},
+		{"gds_unauthorized_request_agent_auth_failure", "agent_auth_failure", "gds_unauthorized_request", "access_control"},
+		{"gds_unauthorized_request_agent_unauthorized", "agent_unauthorized_pull", "gds_unauthorized_request", "access_control"},
+		{"gds_unauthorized_request_mtls_failure", "mtls_client_identity_failure", "gds_unauthorized_request", "access_control"},
 		{"gds_db_connected", "gds_db_connected", "gds_db_connected", "system_health"},
-		{"gds_db_disconnected", "gds_db_disconnected", "gds_db_disconnected", "error"},
+		{"gds_db_disconnected", "gds_db_disconnected", "gds_db_disconnected", "system_health"},
 		{"gds_heartbeat", "gds_heartbeat", "gds_heartbeat", "system_health"},
 		{"application_heartbeat", "application_heartbeat", "gds_heartbeat", "system_health"},
 	}
@@ -367,13 +407,13 @@ func TestNormalizeGDSEventCanonicalMappingsByHeuristics(t *testing.T) {
 			name:     "enrollment endpoint request",
 			payload:  `{"msg":"api request to /enrollment endpoint accepted"}`,
 			message:  "gds_enrollment_request",
-			category: "pki_lifecycle",
+			category: "certificate_lifecycle",
 		},
 		{
 			name:     "enrollment approved from package creation after csr",
 			payload:  `{"msg":"csr validated and package created"}`,
 			message:  "gds_enrollment_approved",
-			category: "pki_lifecycle",
+			category: "certificate_lifecycle",
 		},
 		{
 			name:     "certificate expired telemetry state",
@@ -403,7 +443,7 @@ func TestNormalizeGDSEventCanonicalMappingsByHeuristics(t *testing.T) {
 			name:     "client pull failed by error_code",
 			payload:  `{"msg":"api error","error_code":"upstream_error"}`,
 			message:  "gds_client_pull_failed",
-			category: "security",
+			category: "access_control",
 		},
 		{
 			name:     "db connected preflight success",
@@ -415,7 +455,7 @@ func TestNormalizeGDSEventCanonicalMappingsByHeuristics(t *testing.T) {
 			name:     "db disconnected preflight timeout",
 			payload:  `{"msg":"startup preflight timeout error"}`,
 			message:  "gds_db_disconnected",
-			category: "error",
+			category: "system_health",
 		},
 		{
 			name:     "heartbeat poll result",
