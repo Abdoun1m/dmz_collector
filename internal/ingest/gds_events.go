@@ -138,7 +138,7 @@ func normalizeGDSHealth(rec map[string]any) (event.Event, bool) {
 	ok := boolValue(postgres["ok"])
 	class := gdsClassification{Message: "gds_db_connected", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	if !ok {
-		class = gdsClassification{Message: "gds_db_disconnected", Category: "system_health", Severity: "error", RiskLevel: "HIGH", AlertCandidate: true}
+		class = gdsClassification{Message: "gds_db_disconnected", Category: "error", Severity: "critical", RiskLevel: "HIGH", AlertCandidate: true}
 	}
 	rec["event_type"] = class.Message
 	if detail := stringAny(postgres["detail"]); detail != "" {
@@ -206,7 +206,7 @@ func buildGDSEvent(rec map[string]any, class gdsClassification, eventType, msgTe
 		"risk_level":              class.RiskLevel,
 		"normalized":              true,
 		"normalization_source":    "logs_by_sources_md",
-		"parser_version":          "v3.1.gds_compact_action_mapping",
+		"parser_version":          "v3.2.gds_pack_mapping",
 		"splunk_sourcetype":       gdsSourcetype,
 		"siem_index_hint":         "ot_security",
 		"gds_family":              family,
@@ -287,7 +287,7 @@ func buildGDSDMZControlPlaneEvent(rec map[string]any, dmz gdsDMZControlPlane) ev
 		"collector_decision_hint": "store_forward",
 		"normalized":              true,
 		"normalization_source":    "logs_by_sources_md",
-		"parser_version":          "v3.1.gds_compact_action_mapping",
+		"parser_version":          "v3.2.gds_pack_mapping",
 		"splunk_sourcetype":       gdsSourcetype,
 		"siem_index_hint":         "ot_security",
 	}
@@ -410,21 +410,27 @@ func classifyGDSDMZAction(action string) gdsClassification {
 	case "trustlist_artifact_sig_read":
 		return gdsClassification{Message: "gds_client_pull_success", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
 	case "artifact_regenerated":
-		return gdsClassification{Message: "gds_trust_list_published", Category: "pki_trust_sync", Severity: "info", RiskLevel: "MEDIUM"}
+		return gdsClassification{Message: "gds_trust_list_published", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW", AlertCandidate: true}
 	case "trustlist_build":
-		return gdsClassification{Message: "gds_trust_list_updated", Category: "pki_trust_sync", Severity: "info", RiskLevel: "MEDIUM"}
+		return gdsClassification{Message: "gds_trust_list_updated", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
 	case "certificate_drift_read":
-		return gdsClassification{Message: "gds_client_pull_success", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
+		return gdsClassification{Message: "gds_certificate_drift_read", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
 	case "certificate_telemetry_read":
-		return gdsClassification{Message: "gds_client_pull_success", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
+		return gdsClassification{Message: "gds_certificate_telemetry_read", Category: "operator_action", Severity: "info", RiskLevel: "LOW"}
+	case "component_status_read":
+		return gdsClassification{Message: "gds_component_status_read", Category: "operator_action", Severity: "info", RiskLevel: "LOW"}
+	case "signing_trust_anchor_read":
+		return gdsClassification{Message: "gds_trust_anchor_read", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
 	case "gds_db_connected":
 		return gdsClassification{Message: "gds_db_connected", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	case "gds_db_snapshot":
 		return gdsClassification{Message: "gds_db_snapshot", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
+	case "gds_db_disconnected":
+		return gdsClassification{Message: "gds_db_disconnected", Category: "error", Severity: "critical", RiskLevel: "HIGH", AlertCandidate: true}
 	case "gds_heartbeat":
 		return gdsClassification{Message: "gds_heartbeat", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	default:
-		return gdsClassification{Message: "gds_event_unknown", Category: "system", Severity: "info", RiskLevel: "MEDIUM"}
+		return gdsClassification{Message: "gds_event_unknown", Category: "operator_action", Severity: "info", RiskLevel: "LOW"}
 	}
 }
 
@@ -527,33 +533,33 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 	case "gds_db_connected":
 		return gdsClassification{"gds_db_connected", "system_health", "info", "LOW", false}
 	case "gds_db_disconnected":
-		return gdsClassification{"gds_db_disconnected", "system_health", "error", "HIGH", true}
+		return gdsClassification{"gds_db_disconnected", "error", "critical", "HIGH", true}
 	case "application_register":
-		return gdsClassification{"gds_client_registered", "access_control", "info", "LOW", false}
+		return gdsClassification{"gds_client_registered", "pki_lifecycle", "info", "LOW", false}
 	case "certificate_request_created", "certificate_renewal_requested":
-		return gdsClassification{"gds_enrollment_request", "certificate_lifecycle", "info", "MEDIUM", false}
+		return gdsClassification{"gds_enrollment_request", "pki_lifecycle", "info", "LOW", false}
 	case "csr_validated", "component_enrollment_completed":
-		return gdsClassification{"gds_enrollment_approved", "certificate_lifecycle", "info", "MEDIUM", false}
+		return gdsClassification{"gds_enrollment_approved", "pki_lifecycle", "info", "LOW", false}
 	case "csr_rejected", "certificate_issue_failed", "certificate_renewal_failed":
-		return gdsClassification{"gds_enrollment_failed", "certificate_lifecycle", "error", "HIGH", true}
+		return gdsClassification{"gds_enrollment_failed", "pki_lifecycle", "warning", "MEDIUM", true}
 	case "certificate_issued":
-		return gdsClassification{"gds_certificate_issued", "certificate_lifecycle", "info", "MEDIUM", false}
+		return gdsClassification{"gds_certificate_issued", "certificate_lifecycle", "info", "LOW", true}
 	case "certificate_renewal_packaged", "labshock_gds_component_renewal_result_v1":
-		return gdsClassification{"gds_certificate_renewed", "certificate_lifecycle", "info", "MEDIUM", false}
+		return gdsClassification{"gds_certificate_renewed", "certificate_lifecycle", "info", "LOW", true}
 	case "certificate_revoked", "certificate_revocation_crl_refreshed", "package_revoked":
-		return gdsClassification{"gds_certificate_revoked", "certificate_lifecycle", "warning", "HIGH", true}
+		return gdsClassification{"gds_certificate_revoked", "certificate_lifecycle", "warning", "MEDIUM", true}
 	case "certificate_expired":
-		return gdsClassification{"gds_certificate_expired", "pki_validation", "critical", "CRITICAL", true}
+		return gdsClassification{"gds_certificate_expired", "pki_validation", "warning", "MEDIUM", true}
 	case "trustlist_build":
-		return gdsClassification{"gds_trust_list_updated", "pki_trust_sync", "info", "MEDIUM", false}
+		return gdsClassification{"gds_trust_list_updated", "pki_trust_sync", "info", "LOW", false}
 	case "artifact_regenerated", "trustlist_artifact_rebuild":
-		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "MEDIUM", false}
+		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "LOW", true}
 	case "trustlist_artifact_read", "trustlist_artifact_sig_read", "component_trust_material_read", "package_manifest_read", "certificate_package_read":
 		return gdsClassification{"gds_client_pull_success", "pki_trust_sync", "info", "LOW", false}
 	case "trustlist_pull_failed":
-		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "error", "HIGH", true}
+		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "warning", "MEDIUM", true}
 	case "agent_auth_failure", "agent_unauthorized_pull", "mtls_client_identity_failure":
-		return gdsClassification{"gds_unauthorized_request", "access_control", "warning", "HIGH", true}
+		return gdsClassification{"gds_unauthorized_request", "security", "warning", "MEDIUM", true}
 	case "agent_auth_success":
 		return gdsClassification{"gds_agent_auth_success", "access_control", "info", "LOW", false}
 	case "mtls_client_identity_success":
@@ -561,28 +567,35 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 	case "mtls_metrics_read":
 		return gdsClassification{"gds_client_pull_success", "access_control", "info", "LOW", false}
 	case "certificate_telemetry_read", "certificate_drift_read":
-		return gdsClassification{"gds_client_pull_success", "pki_validation", "info", "LOW", false}
+		if et == "certificate_drift_read" {
+			return gdsClassification{"gds_certificate_drift_read", "pki_validation", "info", "LOW", false}
+		}
+		return gdsClassification{"gds_certificate_telemetry_read", "operator_action", "info", "LOW", false}
+	case "component_status_read":
+		return gdsClassification{"gds_component_status_read", "operator_action", "info", "LOW", false}
+	case "signing_trust_anchor_read":
+		return gdsClassification{"gds_trust_anchor_read", "pki_trust_sync", "info", "LOW", false}
 	}
 
 	if httpMethod != "" && httpPath != "" && httpStatus != "" {
 		statusCode := strings.TrimSpace(httpStatus)
 		if statusCode == "401" || statusCode == "403" {
-			return gdsClassification{"gds_unauthorized_request", "access_control", "warning", "HIGH", true}
+			return gdsClassification{"gds_unauthorized_request", "security", "warning", "MEDIUM", true}
 		}
 		if endpointFamily == "enrollment" {
 			if httpMethod == "POST" && (strings.Contains(httpPath, "/csr") || strings.Contains(httpPath, "/renew")) && (statusCode == "200" || statusCode == "201" || statusCode == "202") {
-				return gdsClassification{"gds_enrollment_request", "certificate_lifecycle", "info", "MEDIUM", false}
+				return gdsClassification{"gds_enrollment_request", "pki_lifecycle", "info", "LOW", false}
 			}
 			if statusCode != "" && statusCode[0] >= '4' {
-				return gdsClassification{"gds_enrollment_failed", "certificate_lifecycle", "error", "HIGH", true}
+				return gdsClassification{"gds_enrollment_failed", "pki_lifecycle", "warning", "MEDIUM", true}
 			}
 		}
 		if endpointFamily == "trust_artifact" || endpointFamily == "trust_artifact_signature" || endpointFamily == "certificate_telemetry" || endpointFamily == "certificate_drift" || endpointFamily == "components_status" {
 			if statusCode != "" && statusCode[0] >= '4' {
 				if endpointFamily == "trust_artifact" || endpointFamily == "trust_artifact_signature" {
-					return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "error", "HIGH", true}
+					return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "warning", "MEDIUM", true}
 				}
-				return gdsClassification{"gds_client_pull_failed", "access_control", "error", "HIGH", true}
+				return gdsClassification{"gds_client_pull_failed", "security", "warning", "MEDIUM", true}
 			}
 			if statusCode == "200" {
 				if endpointFamily == "trust_artifact" || endpointFamily == "trust_artifact_signature" {
@@ -594,10 +607,10 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 	}
 
 	if strings.Contains(text, "db") && (strings.Contains(text, "disconnected") || strings.Contains(text, "connection refused") || strings.Contains(text, "postgres") && strings.Contains(text, "false")) {
-		return gdsClassification{"gds_db_disconnected", "system_health", "error", "HIGH", true}
+		return gdsClassification{"gds_db_disconnected", "error", "critical", "HIGH", true}
 	}
 	if strings.Contains(text, "preflight") && (strings.Contains(text, "timeout") || strings.Contains(text, "error") || strings.Contains(text, "failed")) {
-		return gdsClassification{"gds_db_disconnected", "system_health", "error", "HIGH", true}
+		return gdsClassification{"gds_db_disconnected", "error", "critical", "HIGH", true}
 	}
 	if strings.Contains(text, "preflight") && (strings.Contains(text, "success") || strings.Contains(text, "ok") || strings.Contains(text, "reachable")) {
 		return gdsClassification{"gds_db_connected", "system_health", "info", "LOW", false}
@@ -612,57 +625,57 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 		return gdsClassification{"gds_started", "system_health", "info", "LOW", false}
 	}
 	if strings.Contains(text, "unauthorized") || strings.Contains(text, "auth failure") || strings.Contains(text, "forbidden") || strings.Contains(text, "mtls") && strings.Contains(text, "failure") {
-		return gdsClassification{"gds_unauthorized_request", "access_control", "warning", "HIGH", true}
+		return gdsClassification{"gds_unauthorized_request", "security", "warning", "MEDIUM", true}
 	}
 	if strings.Contains(text, "enrollment") && (strings.Contains(text, "request") || strings.Contains(text, "endpoint") || strings.Contains(text, "/enroll") || strings.Contains(text, "/enrollment") || strings.Contains(text, "csr")) {
 		if strings.Contains(text, "failed") || strings.Contains(text, "error") || strings.Contains(text, "rejected") {
-			return gdsClassification{"gds_enrollment_failed", "certificate_lifecycle", "error", "HIGH", true}
+			return gdsClassification{"gds_enrollment_failed", "pki_lifecycle", "warning", "MEDIUM", true}
 		}
 		if strings.Contains(text, "validated") || strings.Contains(text, "created") || strings.Contains(text, "approved") {
-			return gdsClassification{"gds_enrollment_approved", "certificate_lifecycle", "info", "MEDIUM", false}
+			return gdsClassification{"gds_enrollment_approved", "pki_lifecycle", "info", "LOW", false}
 		}
-		return gdsClassification{"gds_enrollment_request", "certificate_lifecycle", "info", "MEDIUM", false}
+		return gdsClassification{"gds_enrollment_request", "pki_lifecycle", "info", "LOW", false}
 	}
 	if strings.Contains(text, "csr") && strings.Contains(text, "validated") && strings.Contains(text, "package") && strings.Contains(text, "created") {
-		return gdsClassification{"gds_enrollment_approved", "certificate_lifecycle", "info", "MEDIUM", false}
+		return gdsClassification{"gds_enrollment_approved", "pki_lifecycle", "info", "LOW", false}
 	}
 	if strings.Contains(text, "artifact regenerated") || strings.Contains(text, "trustlist_artifact_rebuild") {
-		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "MEDIUM", false}
+		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "LOW", true}
 	}
 	if strings.Contains(text, "trustlist") && strings.Contains(text, "artifact") && (strings.Contains(text, "failed") || strings.Contains(text, "error")) {
-		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "error", "HIGH", true}
+		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "warning", "MEDIUM", true}
 	}
 	if strings.Contains(text, "nginx") && (strings.Contains(text, " 4") || strings.Contains(text, " 5")) && (strings.Contains(text, "artifact") || strings.Contains(text, "trustlist") || strings.Contains(text, "package")) {
-		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "error", "HIGH", true}
+		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "warning", "MEDIUM", true}
 	}
 	if strings.Contains(text, "expiry_state") && strings.Contains(text, "expired") {
-		return gdsClassification{"gds_certificate_expired", "pki_validation", "critical", "CRITICAL", true}
+		return gdsClassification{"gds_certificate_expired", "pki_validation", "warning", "MEDIUM", true}
 	}
 	if strings.Contains(text, "drift") && (strings.Contains(text, "report") || strings.Contains(text, "api") || strings.Contains(text, "db")) {
-		return gdsClassification{"gds_certificate_expired", "pki_validation", "critical", "CRITICAL", true}
+		return gdsClassification{"gds_certificate_expired", "pki_validation", "warning", "MEDIUM", true}
 	}
 	if strings.Contains(text, "health") && strings.Contains(text, "poll") {
 		return gdsClassification{"gds_heartbeat", "system_health", "info", "LOW", false}
 	}
 	if strings.TrimSpace(firstString(rec, "error_code")) != "" {
-		return gdsClassification{"gds_client_pull_failed", "access_control", "error", "HIGH", true}
+		return gdsClassification{"gds_client_pull_failed", "security", "warning", "MEDIUM", true}
 	}
 	if strings.Contains(text, "gds bootstrap starting") || strings.Contains(text, "starting uvicorn") || strings.Contains(text, "dmz dependencies reachable") {
 		return gdsClassification{"gds_started", "system_health", "info", "LOW", false}
 	}
 	if strings.Contains(text, "expired") && strings.Contains(text, "cert") {
-		return gdsClassification{"gds_certificate_expired", "pki_validation", "critical", "CRITICAL", true}
+		return gdsClassification{"gds_certificate_expired", "pki_validation", "warning", "MEDIUM", true}
 	}
 	if status := statusCode(rec); status >= 400 {
 		if strings.Contains(text, "artifact") || strings.Contains(text, "trustlist") || strings.Contains(text, "package") {
-			return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "error", "HIGH", true}
+			return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "warning", "MEDIUM", true}
 		}
-		return gdsClassification{"gds_client_pull_failed", "access_control", "error", "HIGH", true}
+		return gdsClassification{"gds_client_pull_failed", "security", "warning", "MEDIUM", true}
 	}
 	if class := classifyKnownGDSCompactAction(rec, msgText, et); class.Message != "" {
 		return class
 	}
-	return gdsClassification{"gds_event_unknown", "system", "info", "MEDIUM", false}
+	return gdsClassification{"gds_event_unknown", "operator_action", "info", "LOW", false}
 }
 
 func classifyKnownGDSCompactAction(rec map[string]any, msgText, eventType string) gdsClassification {
@@ -708,6 +721,7 @@ func gdsSafeFields(rec map[string]any) map[string]any {
 	copySafeField(out, rec, "request_id", "request_id")
 	copySafeField(out, rec, "certificate_id", "certificate_id")
 	copySafeField(out, rec, "fingerprint_sha256", "fingerprint_sha256")
+	copySafeField(out, rec, "certificate_fingerprint_sha256", "certificate_fingerprint_sha256")
 	copySafeField(out, rec, "serial_number", "serial_number")
 	copySafeField(out, rec, "trustlist_zone", "trustlist_zone")
 	copySafeField(out, rec, "trustlist_role", "trustlist_role")
@@ -727,13 +741,32 @@ func gdsSafeFields(rec map[string]any) map[string]any {
 	copySafeField(out, rec, "logger", "logger")
 	copySafeField(out, rec, "level", "level")
 	copySafeField(out, rec, "status", "status")
+	copySafeField(out, rec, "component", "component")
+	copySafeField(out, rec, "generated_at", "generated_at")
+	copySafeField(out, rec, "created_at", "created_at")
+	copySafeField(out, rec, "reported_at", "reported_at")
+	copySafeField(out, rec, "table", "table")
+	copySafeField(out, rec, "row_count", "row_count")
+	copySafeField(out, rec, "latest_id", "latest_id")
+	copySafeField(out, rec, "latest_created_at", "latest_created_at")
+	copySafeField(out, rec, "latest_updated_at", "latest_updated_at")
+	copySafeField(out, rec, "db_connected", "db_connected")
+	copySafeField(out, rec, "checks", "checks")
+	copySafeField(out, rec, "postgres", "postgres")
+	copySafeField(out, rec, "tables", "tables")
 	copySafeField(out, rec, "reason", "reason")
 	copySafeField(out, rec, "error", "error")
 	copySafeField(out, rec, "line", "line")
 
+	if raw := mapAny(rec["raw"]); len(raw) > 0 {
+		for _, key := range []string{"event_type", "actor", "target", "application_uri", "runtime_instance_id", "package_id", "request_id", "certificate_id", "fingerprint_sha256", "certificate_fingerprint_sha256", "serial_number", "trustlist_zone", "trustlist_role", "trustlist_version", "artifact_revision", "artifact_sha256", "error_code", "correlation_id", "source_ip", "mtls_verify_status", "status", "component", "generated_at", "created_at", "reported_at", "table", "row_count", "latest_id", "latest_created_at", "latest_updated_at", "db_connected", "checks", "postgres", "tables", "log_message", "gds_action", "gds_family"} {
+			copySafeField(out, raw, key, key)
+		}
+	}
+
 	if details := mapAny(rec["details_json"]); len(details) > 0 {
 		redacted := redactMap(details)
-		for _, key := range []string{"application_uri", "runtime_instance_id", "package_id", "request_id", "certificate_id", "fingerprint_sha256", "serial_number", "trustlist_zone", "trustlist_role", "trustlist_version", "artifact_revision", "artifact_sha256", "error_code", "correlation_id", "source_ip", "mtls_verify_status", "reason"} {
+		for _, key := range []string{"application_uri", "runtime_instance_id", "package_id", "request_id", "certificate_id", "fingerprint_sha256", "certificate_fingerprint_sha256", "serial_number", "trustlist_zone", "trustlist_role", "trustlist_version", "artifact_revision", "artifact_sha256", "error_code", "correlation_id", "source_ip", "mtls_verify_status", "reason", "status"} {
 			copySafeField(out, redacted, key, key)
 		}
 		out["details_json"] = compactGDSMap(redacted)
@@ -774,7 +807,10 @@ func redactMap(in map[string]any) map[string]any {
 
 func isGDSSensitiveKey(key string) bool {
 	k := strings.ToLower(strings.TrimSpace(key))
-	sensitive := []string{"token", "client_token", "role_id", "secret_id", "password", "passwd", "private_key", "key_pem", "pem", "certificate_pem", "cert_pem", "csr_pem", "ca_chain_pem", "crl_base64", "crl_bundle", "signature", "secret"}
+	sensitive := []string{"token", "authorization", "password", "passwd", "private_key", "privatekey", "key_pem", "pem", "csr", "csr_pem", "certificate_pem", "certificate_body", "cert_body", "full_certificate", "cert_pem", "ca_chain", "ca_chain_pem", "crl", "crl_body", "crl_base64", "crl_bundle", "signature", "secret"}
+	if strings.Contains(k, "accessor") {
+		return false
+	}
 	for _, item := range sensitive {
 		if k == item || strings.Contains(k, item) {
 			return true
@@ -839,6 +875,13 @@ func firstString(rec map[string]any, keys ...string) string {
 	if details := mapAny(rec["details_json"]); len(details) > 0 {
 		for _, key := range keys {
 			if v := stringAny(details[key]); strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	if raw := mapAny(rec["raw"]); len(raw) > 0 {
+		for _, key := range keys {
+			if v := stringAny(raw[key]); strings.TrimSpace(v) != "" {
 				return strings.TrimSpace(v)
 			}
 		}
