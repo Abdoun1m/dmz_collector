@@ -113,8 +113,8 @@ func NormalizeGDSEvent(raw []byte) (event.Event, error) {
 		return ev, nil
 	}
 
-	msgText := strings.TrimSpace(firstString(rec, "msg", "message", "log", "detail", "details"))
-	eventType := normalizeGDSEventType(firstString(rec, "event_type", "type", "event", "action", "name"))
+	msgText := strings.TrimSpace(firstString(rec, "log_message", "msg", "message", "log", "detail", "details"))
+	eventType := normalizeGDSEventType(firstString(rec, "event_type", "type", "event", "action", "gds_action", "name"))
 	if eventType == "" {
 		eventType = eventTypeFromMessage(msgText)
 	}
@@ -179,6 +179,15 @@ func buildGDSEvent(rec map[string]any, class gdsClassification, eventType, msgTe
 		logMessage = strings.TrimSpace(eventType)
 	}
 	family, action := splitGDSFamilyAction(logMessage)
+	if explicitFamily := strings.TrimSpace(firstString(rec, "gds_family")); explicitFamily != "" {
+		family = explicitFamily
+	}
+	if explicitAction := strings.TrimSpace(firstString(rec, "gds_action")); explicitAction != "" {
+		action = explicitAction
+	}
+	if strings.TrimSpace(msgText) == "" && family != "" && action != "" {
+		logMessage = family + ": " + action
+	}
 	safe := gdsSafeFields(rec)
 	if eventType != "" {
 		safe["event_type"] = eventType
@@ -411,7 +420,7 @@ func classifyGDSDMZAction(action string) gdsClassification {
 	case "gds_db_connected":
 		return gdsClassification{Message: "gds_db_connected", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	case "gds_db_snapshot":
-		return gdsClassification{Message: "gds_db_connected", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
+		return gdsClassification{Message: "gds_db_snapshot", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	case "gds_heartbeat":
 		return gdsClassification{Message: "gds_heartbeat", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	default:
@@ -514,7 +523,7 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 	case "gds_heartbeat", "application_heartbeat":
 		return gdsClassification{"gds_heartbeat", "system_health", "info", "LOW", false}
 	case "gds_db_snapshot":
-		return gdsClassification{"gds_db_connected", "system_health", "info", "LOW", false}
+		return gdsClassification{"gds_db_snapshot", "system_health", "info", "LOW", false}
 	case "gds_db_connected":
 		return gdsClassification{"gds_db_connected", "system_health", "info", "LOW", false}
 	case "gds_db_disconnected":
@@ -539,12 +548,20 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 		return gdsClassification{"gds_trust_list_updated", "pki_trust_sync", "info", "MEDIUM", false}
 	case "artifact_regenerated", "trustlist_artifact_rebuild":
 		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "MEDIUM", false}
-	case "trustlist_artifact_read", "component_trust_material_read", "package_manifest_read", "certificate_package_read":
+	case "trustlist_artifact_read", "trustlist_artifact_sig_read", "component_trust_material_read", "package_manifest_read", "certificate_package_read":
 		return gdsClassification{"gds_client_pull_success", "pki_trust_sync", "info", "LOW", false}
 	case "trustlist_pull_failed":
 		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "error", "HIGH", true}
 	case "agent_auth_failure", "agent_unauthorized_pull", "mtls_client_identity_failure":
 		return gdsClassification{"gds_unauthorized_request", "access_control", "warning", "HIGH", true}
+	case "agent_auth_success":
+		return gdsClassification{"gds_agent_auth_success", "access_control", "info", "LOW", false}
+	case "mtls_client_identity_success":
+		return gdsClassification{"gds_mtls_client_identity_success", "access_control", "info", "LOW", false}
+	case "mtls_metrics_read":
+		return gdsClassification{"gds_client_pull_success", "access_control", "info", "LOW", false}
+	case "certificate_telemetry_read", "certificate_drift_read":
+		return gdsClassification{"gds_client_pull_success", "pki_validation", "info", "LOW", false}
 	}
 
 	if httpMethod != "" && httpPath != "" && httpStatus != "" {
@@ -648,6 +665,8 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 func gdsSafeFields(rec map[string]any) map[string]any {
 	out := map[string]any{}
 	copySafeField(out, rec, "event_type", "event_type")
+	copySafeField(out, rec, "gds_family", "gds_family")
+	copySafeField(out, rec, "gds_action", "gds_action")
 	copySafeField(out, rec, "actor", "actor")
 	copySafeField(out, rec, "target", "target")
 	copySafeField(out, rec, "application_uri", "application_uri")

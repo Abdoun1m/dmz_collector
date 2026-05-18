@@ -105,7 +105,7 @@ func TestNormalizeGDSEventDBSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
 	}
-	if ev.Message != "gds_db_connected" || ev.EventCategory != "system_health" || ev.Severity != "info" {
+	if ev.Message != "gds_db_snapshot" || ev.EventCategory != "system_health" || ev.Severity != "info" {
 		t.Fatalf("unexpected DB snapshot classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 	}
 	if ev.Tags["gds_action"] != "gds_db_snapshot" {
@@ -241,7 +241,7 @@ func TestNormalizeGDSEventDMZControlPlaneMappings(t *testing.T) {
 		{"certificate drift read", "gds_audit_event: certificate_drift_read", "gds_client_pull_success", "pki_validation", "LOW"},
 		{"certificate telemetry read", "gds_audit_event: certificate_telemetry_read", "gds_client_pull_success", "pki_validation", "LOW"},
 		{"db connected", "gds_db_connected", "gds_db_connected", "system_health", "LOW"},
-		{"db snapshot", "gds_db_snapshot", "gds_db_connected", "system_health", "LOW"},
+		{"db snapshot", "gds_db_snapshot", "gds_db_snapshot", "system_health", "LOW"},
 		{"heartbeat", "gds_heartbeat", "gds_heartbeat", "system_health", "LOW"},
 	}
 
@@ -255,13 +255,13 @@ func TestNormalizeGDSEventDMZControlPlaneMappings(t *testing.T) {
 			if ev.Message != tt.expected || ev.EventCategory != tt.category || ev.Severity != "info" {
 				t.Fatalf("unexpected classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 			}
-				if ev.Tags["gds_action"] != extractExpectedAction(tt.logMessage) {
+			if ev.Tags["gds_action"] != extractExpectedAction(tt.logMessage) {
 				t.Fatalf("unexpected gds_action tag: %#v", ev.Tags["gds_action"])
 			}
 			if ev.Tags["risk_level"] != tt.risk {
 				t.Fatalf("unexpected risk_level tag: %#v", ev.Tags["risk_level"])
 			}
-				if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage || ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
+			if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage || ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
 				t.Fatalf("expected parsed tags and original log message, got %#v", ev.Tags)
 			}
 		})
@@ -320,6 +320,39 @@ func TestNormalizeGDSEventDMZExtractsLogMessageFromRawVariants(t *testing.T) {
 			}
 			if ev.Tags["gds_family"] != tt.expectedFM {
 				t.Fatalf("unexpected gds_family: %#v", ev.Tags["gds_family"])
+			}
+		})
+	}
+}
+
+func TestNormalizeGDSEventDMZDirectFamilyAction(t *testing.T) {
+	tests := []struct {
+		name     string
+		family   string
+		action   string
+		message  string
+		category string
+	}{
+		{"mtls success", "gds_audit_event", "mtls_client_identity_success", "gds_mtls_client_identity_success", "access_control"},
+		{"agent auth success", "gds_audit_event", "agent_auth_success", "gds_agent_auth_success", "access_control"},
+		{"trustlist read", "gds_audit_event", "trustlist_artifact_read", "gds_client_pull_success", "pki_trust_sync"},
+		{"trustlist sig read", "gds_audit_event", "trustlist_artifact_sig_read", "gds_client_pull_success", "pki_trust_sync"},
+		{"artifact regenerated", "gds_trust_list_published", "artifact_regenerated", "gds_trust_list_published", "pki_trust_sync"},
+		{"db snapshot", "gds_runtime", "gds_db_snapshot", "gds_db_snapshot", "system_health"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := []byte(fmt.Sprintf(`{"gds_family":%q,"gds_action":%q}`, tt.family, tt.action))
+			ev, err := NormalizeGDSEvent(raw)
+			if err != nil {
+				t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+			}
+			if ev.Message != tt.message || ev.EventCategory != tt.category {
+				t.Fatalf("unexpected direct action mapping: got (%s,%s), want (%s,%s)", ev.Message, ev.EventCategory, tt.message, tt.category)
+			}
+			if ev.Tags["gds_family"] != tt.family || ev.Tags["gds_action"] != tt.action {
+				t.Fatalf("expected family/action tags, got %#v", ev.Tags)
 			}
 		})
 	}
