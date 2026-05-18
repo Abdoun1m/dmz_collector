@@ -16,9 +16,9 @@ services:
       STORAGE_BACKEND: jsonl
       EVENTS_FILE: /data/events.jsonl
       SPOOL_FILE: /data/spool/events.jsonl
+      DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE: ""
     volumes:
       - dmz-collector-data:/data
 
 volumes:
   dmz-collector-data:
-

@@ -28,6 +28,13 @@ type gdsClassification struct {
 	AlertCandidate bool
 }
 
+type gdsDMZControlPlane struct {
+	LogMessage string
+	Family     string
+	Action     string
+	Class      gdsClassification
+}
+
 func NormalizeGDSEventsMany(raw []byte) ([]event.Event, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
@@ -98,6 +105,9 @@ func NormalizeGDSEvent(raw []byte) (event.Event, error) {
 		return event.Event{}, err
 	}
 	rec = redactMap(rec)
+	if dmz, ok := normalizeGDSDMZControlPlane(rec); ok {
+		return buildGDSDMZControlPlaneEvent(rec, dmz), nil
+	}
 	if ev, ok := normalizeGDSHealth(rec); ok {
 		return ev, nil
 	}
@@ -206,6 +216,199 @@ func buildGDSEvent(rec map[string]any, class gdsClassification, eventType, msgTe
 	}
 	ev.EnsureDefaults()
 	return ev
+}
+
+func normalizeGDSDMZControlPlane(rec map[string]any) (gdsDMZControlPlane, bool) {
+	if !isDMZGDSControlPlane(rec) {
+		return gdsDMZControlPlane{}, false
+	}
+
+	logMessage := strings.TrimSpace(extractGDSLogMessage(rec))
+	if logMessage == "" {
+		return gdsDMZControlPlane{}, false
+	}
+
+	family, action := splitGDSFamilyAction(logMessage)
+	class := classifyGDSDMZAction(action)
+
+	return gdsDMZControlPlane{
+		LogMessage: logMessage,
+		Family:     family,
+		Action:     action,
+		Class:      class,
+	}, true
+}
+
+func buildGDSDMZControlPlaneEvent(rec map[string]any, dmz gdsDMZControlPlane) event.Event {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	ts := firstString(rec, "created_at", "generated_at", "reported_at", "ts", "timestamp", "time")
+	if ts == "" {
+		ts = now
+	}
+
+	rawPayload := extractOriginalGDSRaw(rec)
+	rawJSON, _ := json.Marshal(rawPayload)
+
+	tags := map[string]any{
+		"log_message":             dmz.LogMessage,
+		"gds_family":              dmz.Family,
+		"gds_action":              dmz.Action,
+		"risk_level":              dmz.Class.RiskLevel,
+		"component":               "gds",
+		"purdue_zone":             "dmz",
+		"collector_decision_hint": "store_forward",
+		"normalized":              true,
+		"normalization_source":    "logs_by_sources_md",
+		"parser_version":          "v3.gds_dmz_normalization",
+		"splunk_sourcetype":       gdsSourcetype,
+		"siem_index_hint":         "ot_security",
+	}
+
+	ev := event.Event{
+		Timestamp:     ts,
+		ReceivedAt:    now,
+		Zone:          "DMZ",
+		Source:        "gds_events",
+		SourceType:    "gds",
+		AssetName:     gdsAssetName,
+		AssetIP:       gdsAssetIP,
+		Severity:      dmz.Class.Severity,
+		Protocol:      "gds_event",
+		EventCategory: dmz.Class.Category,
+		Message:       dmz.Class.Message,
+		Raw:           string(rawJSON),
+		Tags:          compactGDSMap(tags),
+		ExtraFields: map[string]any{
+			"gds_family": dmz.Family,
+			"gds_action": dmz.Action,
+			"risk_level": dmz.Class.RiskLevel,
+		},
+	}
+	ev.EnsureDefaults()
+	return ev
+}
+
+func isDMZGDSControlPlane(rec map[string]any) bool {
+	matches := []bool{
+		strings.EqualFold(strings.TrimSpace(firstString(rec, "source_type")), "gds"),
+		strings.EqualFold(strings.TrimSpace(firstString(rec, "source")), "gds_events"),
+		strings.EqualFold(strings.TrimSpace(firstString(rec, "asset_name")), gdsAssetName),
+		strings.EqualFold(strings.TrimSpace(firstString(rec, "sourcetype")), gdsSourcetype),
+	}
+	for _, match := range matches {
+		if match {
+			return true
+		}
+	}
+
+	logMessage := strings.TrimSpace(extractGDSLogMessage(rec))
+	return strings.HasPrefix(strings.ToLower(logMessage), "gds_")
+}
+
+func extractGDSLogMessage(rec map[string]any) string {
+	if message := strings.TrimSpace(firstString(rec, "log_message")); message != "" {
+		return message
+	}
+
+	raw := rec["raw"]
+	if rawMap := mapAny(raw); len(rawMap) > 0 {
+		if message := strings.TrimSpace(firstString(rawMap, "log_message")); message != "" {
+			return message
+		}
+	}
+
+	rawText := strings.TrimSpace(stringAny(raw))
+	if rawText != "" {
+		if parsed := parseGDSRawText(rawText); parsed != "" {
+			return parsed
+		}
+	}
+
+	return ""
+}
+
+func parseGDSRawText(rawText string) string {
+	var rawObj map[string]any
+	if err := json.Unmarshal([]byte(rawText), &rawObj); err == nil {
+		if message := strings.TrimSpace(firstString(rawObj, "log_message")); message != "" {
+			return message
+		}
+	}
+
+	if strings.HasPrefix(strings.ToLower(rawText), "gds_") {
+		return rawText
+	}
+
+	return ""
+}
+
+func splitGDSFamilyAction(logMessage string) (string, string) {
+	if idx := strings.Index(logMessage, ":"); idx >= 0 {
+		family := strings.TrimSpace(logMessage[:idx])
+		action := strings.TrimSpace(logMessage[idx+1:])
+		if family == "" {
+			family = "gds_runtime"
+		}
+		if action == "" {
+			action = "unknown"
+		}
+		return family, action
+	}
+	return "gds_runtime", strings.TrimSpace(logMessage)
+}
+
+func classifyGDSDMZAction(action string) gdsClassification {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "agent_auth_success":
+		return gdsClassification{Message: "gds_agent_auth_success", Category: "access_control", Severity: "info", RiskLevel: "LOW"}
+	case "mtls_client_identity_success":
+		return gdsClassification{Message: "gds_mtls_client_identity_success", Category: "access_control", Severity: "info", RiskLevel: "LOW"}
+	case "trustlist_artifact_read":
+		return gdsClassification{Message: "gds_trustlist_artifact_read", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
+	case "trustlist_artifact_sig_read":
+		return gdsClassification{Message: "gds_trustlist_artifact_signature_read", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
+	case "artifact_regenerated":
+		return gdsClassification{Message: "gds_trust_artifact_regenerated", Category: "pki_trust_sync", Severity: "info", RiskLevel: "MEDIUM"}
+	case "certificate_drift_read":
+		return gdsClassification{Message: "gds_certificate_drift_read", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
+	case "certificate_telemetry_read":
+		return gdsClassification{Message: "gds_certificate_telemetry_read", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
+	case "gds_db_connected":
+		return gdsClassification{Message: "gds_db_connected", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
+	case "gds_db_snapshot":
+		return gdsClassification{Message: "gds_db_snapshot", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
+	case "gds_heartbeat":
+		return gdsClassification{Message: "gds_heartbeat", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
+	default:
+		return gdsClassification{Message: "gds_event_unknown", Category: "system", Severity: "info", RiskLevel: "MEDIUM"}
+	}
+}
+
+func extractOriginalGDSRaw(rec map[string]any) any {
+	if raw, ok := rec["raw"]; ok {
+		switch t := raw.(type) {
+		case string:
+			trimmed := strings.TrimSpace(t)
+			if trimmed != "" {
+				var rawObj map[string]any
+				if err := json.Unmarshal([]byte(trimmed), &rawObj); err == nil {
+					return compactGDSMap(rawObj)
+				}
+			}
+			if msg := parseGDSRawText(trimmed); msg != "" {
+				return map[string]any{"log_message": msg}
+			}
+			return map[string]any{"log_message": trimmed}
+		case map[string]any:
+			return compactGDSMap(t)
+		}
+	}
+
+	if msg := strings.TrimSpace(firstString(rec, "log_message")); msg != "" {
+		return map[string]any{"log_message": msg}
+	}
+
+	return map[string]any{}
 }
 
 func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsClassification {

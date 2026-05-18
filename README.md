@@ -242,6 +242,11 @@ The DMZ collector exposes an HTTP API. These routes reflect the current code:
 Notes:
 - `/events` accepts both a single event object and an array of events.
 - Events are first persisted locally to `events_file`, appended to the spool (`spool_file`), and then enqueued for forwarding.
+
+GDS endpoint auth:
+- `/gds/events` can use a dedicated token with `DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE=/run/secrets/gds-events-token`.
+- If the file setting is present, the request must include `Authorization: Bearer <file contents>`.
+- If no GDS-specific token is configured, the endpoint falls back to `DMZ_INGEST_TOKEN` for compatibility.
 ## 11. Troubleshooting
 
 - Check health:

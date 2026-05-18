@@ -17,8 +17,9 @@ type Config struct {
 	SpoolFile      string
 	DataDir        string
 
-	IngestToken string
-	LogLevel    slog.Level
+	IngestToken    string
+	GDSEventsToken string
+	LogLevel       slog.Level
 
 	Splunk SplunkConfig
 	Syslog SyslogConfig
@@ -79,6 +80,7 @@ func Load() Config {
 		SpoolFile:            getenv("SPOOL_FILE", "/data/spool/events.jsonl"),
 		DataDir:              getenv("DATA_DIR", "/data"),
 		IngestToken:          strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN")),
+		GDSEventsToken:       loadEndpointToken("DMZ_COLLECTOR_GDS_EVENTS_TOKEN", "DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE", strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN"))),
 		LogLevel:             parseLevel(getenv("LOG_LEVEL", "info")),
 		Splunk:               loadSplunk(),
 		Syslog:               loadSyslog(),
@@ -133,6 +135,21 @@ func loadSelfTelemetry() SelfTelemetryConfig {
 		SpoolCriticalEvents:   int64(parseInt(getenv("DMZ_SELF_TELEMETRY_SPOOL_CRITICAL_EVENTS", "10000"), 10000)),
 		EmitEventFlowCounters: parseBool(getenv("DMZ_SELF_TELEMETRY_EVENT_FLOW", "true")),
 	}
+}
+
+func loadEndpointToken(envKey, fileKey, fallback string) string {
+	if path := strings.TrimSpace(os.Getenv(fileKey)); path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			if token := strings.TrimSpace(string(b)); token != "" {
+				return token
+			}
+		}
+		return "__invalid_endpoint_token_file__"
+	}
+	if token := strings.TrimSpace(os.Getenv(envKey)); token != "" {
+		return token
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func getenv(key, def string) string {

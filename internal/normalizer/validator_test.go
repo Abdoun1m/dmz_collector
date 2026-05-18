@@ -50,3 +50,27 @@ func TestValidateAndNormalizeGDSAgentCanonicalization(t *testing.T) {
 		t.Fatalf("expected source_type gds_agent, got %q", ev.SourceType)
 	}
 }
+
+func TestValidateAndNormalizePLCRegression(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	ev, err := ValidateAndNormalize(event.Event{
+		Timestamp:  now,
+		ReceivedAt: now,
+		SourceType: "plc",
+		Message:    "plc_login_attempt",
+		Severity:   "warning",
+		Tags:       map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("ValidateAndNormalize returned error: %v", err)
+	}
+	if ev.SourceType != "plc" {
+		t.Fatalf("expected source_type plc, got %q", ev.SourceType)
+	}
+	if ev.Tags["splunk_sourcetype"] != "labshock:ot:plc" {
+		t.Fatalf("expected labshock:ot:plc sourcetype, got %#v", ev.Tags["splunk_sourcetype"])
+	}
+	if ev.Message != "plc_login_attempt" || ev.Severity != "warning" {
+		t.Fatalf("unexpected plc event mutation: %#v", ev)
+	}
+}

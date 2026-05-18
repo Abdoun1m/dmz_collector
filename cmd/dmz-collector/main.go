@@ -40,27 +40,27 @@ type App struct {
 	queue *buffer.Queue
 	stats *stats.Stats
 
-	streamHub *api.StreamHub
-	fwdStore  *config.ForwardingStore
+	streamHub     *api.StreamHub
+	fwdStore      *config.ForwardingStore
 	sourceCatalog *sourcecatalog.Catalog
 
 	splunkFwd *forwarder.SplunkHECForwarder
 	syslogFwd *forwarder.SyslogForwarder
 
-	mu            sync.RWMutex
-	seenIDs       map[string]struct{}
-	inflight      map[string]struct{}
-	offsetByID    map[string]int64
-	splunkSuccessCount int64
-	splunkFailedCount  int64
+	mu                  sync.RWMutex
+	seenIDs             map[string]struct{}
+	inflight            map[string]struct{}
+	offsetByID          map[string]int64
+	splunkSuccessCount  int64
+	splunkFailedCount   int64
 	splunkLastSuccessAt string
 	splunkLastFailureAt string
 	splunkLastError     string
 	splunkLastEventID   string
-	lastHECStatus string
-	lastHECError  string
-	failedBatches int64
-	startedAt     string
+	lastHECStatus       string
+	lastHECError        string
+	failedBatches       int64
+	startedAt           string
 
 	sources map[string]config.SourceStatus
 }
@@ -84,22 +84,22 @@ func main() {
 	}
 
 	app := &App{
-		cfg:       cfg,
-		logger:    logger,
-		store:     storage.NewJSONLStore(cfg.EventsFile),
-		spool:     buffer.NewSpool(cfg.SpoolFile),
-		queue:     buffer.NewQueue(4096),
-		stats:     stats.New(),
-		streamHub: api.NewStreamHub(),
-		fwdStore:  forwardingStore,
+		cfg:           cfg,
+		logger:        logger,
+		store:         storage.NewJSONLStore(cfg.EventsFile),
+		spool:         buffer.NewSpool(cfg.SpoolFile),
+		queue:         buffer.NewQueue(4096),
+		stats:         stats.New(),
+		streamHub:     api.NewStreamHub(),
+		fwdStore:      forwardingStore,
 		sourceCatalog: sourcecatalog.New(cfg.OTBaseURL),
-		splunkFwd: forwarder.NewSplunkHECForwarder(cfg.Splunk.VerifyTLS, 5*time.Second),
-		syslogFwd: forwarder.NewSyslogForwarder(),
-		seenIDs:   map[string]struct{}{},
-		inflight:  map[string]struct{}{},
-		offsetByID: map[string]int64{},
-		startedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		sources:   map[string]config.SourceStatus{},
+		splunkFwd:     forwarder.NewSplunkHECForwarder(cfg.Splunk.VerifyTLS, 5*time.Second),
+		syslogFwd:     forwarder.NewSyslogForwarder(),
+		seenIDs:       map[string]struct{}{},
+		inflight:      map[string]struct{}{},
+		offsetByID:    map[string]int64{},
+		startedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		sources:       map[string]config.SourceStatus{},
 	}
 	app.initSources()
 	app.loadSeenIDs()
@@ -127,7 +127,7 @@ func main() {
 		}()
 	}
 
-	httpAPI := api.New(cfg.APIAddr, cfg.IngestToken, app, app.streamHub)
+	httpAPI := api.New(cfg.APIAddr, cfg.IngestToken, cfg.GDSEventsToken, app, app.streamHub)
 	logger.Info("dmz collector starting", "api", cfg.APIAddr)
 	if err := httpAPI.Run(ctx); err != nil {
 		logger.Error("api stopped with error", "error", err)
@@ -212,20 +212,20 @@ func (a *App) ReadEventByID(id string) (event.Event, bool, error) {
 func (a *App) StatsSummary() map[string]any {
 	splunk := a.splunkStats()
 	return map[string]any{
-		"total_events":            a.stats.TotalReceived(),
-		"source_count":            a.sourceCatalog.Count(),
-		"critical_count":          a.stats.SeverityCount("critical"),
-		"warning_count":           a.stats.SeverityCount("warning"),
-		"latest_event_timestamp":  a.stats.LatestEventTimestamp(),
-		"queue":                   a.QueueStatus(),
-		"splunk_enabled":          splunk["splunk_enabled"],
-		"splunk_hec_url":          splunk["splunk_hec_url"],
-		"splunk_success_count":    splunk["splunk_success_count"],
-		"splunk_failed_count":     splunk["splunk_failed_count"],
-		"splunk_last_success_at":   splunk["splunk_last_success_at"],
-		"splunk_last_failure_at":   splunk["splunk_last_failure_at"],
-		"splunk_last_error":       splunk["splunk_last_error"],
-		"splunk_last_event_id":    splunk["splunk_last_event_id"],
+		"total_events":           a.stats.TotalReceived(),
+		"source_count":           a.sourceCatalog.Count(),
+		"critical_count":         a.stats.SeverityCount("critical"),
+		"warning_count":          a.stats.SeverityCount("warning"),
+		"latest_event_timestamp": a.stats.LatestEventTimestamp(),
+		"queue":                  a.QueueStatus(),
+		"splunk_enabled":         splunk["splunk_enabled"],
+		"splunk_hec_url":         splunk["splunk_hec_url"],
+		"splunk_success_count":   splunk["splunk_success_count"],
+		"splunk_failed_count":    splunk["splunk_failed_count"],
+		"splunk_last_success_at": splunk["splunk_last_success_at"],
+		"splunk_last_failure_at": splunk["splunk_last_failure_at"],
+		"splunk_last_error":      splunk["splunk_last_error"],
+		"splunk_last_event_id":   splunk["splunk_last_event_id"],
 	}
 }
 
@@ -245,8 +245,8 @@ func (a *App) Stats() map[string]any {
 		"splunk_hec_url":         splunk["splunk_hec_url"],
 		"splunk_success_count":   splunk["splunk_success_count"],
 		"splunk_failed_count":    splunk["splunk_failed_count"],
-		"splunk_last_success_at":  splunk["splunk_last_success_at"],
-		"splunk_last_failure_at":  splunk["splunk_last_failure_at"],
+		"splunk_last_success_at": splunk["splunk_last_success_at"],
+		"splunk_last_failure_at": splunk["splunk_last_failure_at"],
 		"splunk_last_error":      splunk["splunk_last_error"],
 		"splunk_last_event_id":   splunk["splunk_last_event_id"],
 	}
@@ -268,20 +268,20 @@ func (a *App) SourcesWithOptions(includeInternal, includeDisabled, includeDirect
 		IncludeDirectSIEM: includeDirectSIEM,
 	})
 	return map[string]any{
-		"generated_at":                 snap.GeneratedAt,
-		"source_of_truth":              snap.SourceOfTruth,
-		"ot_collector_url":             snap.OTCollectorURL,
-		"visible_sources":              snap.VisibleSources,
-		"hidden_sources":               snap.HiddenSources,
-		"configured_sources_total":     snap.ConfiguredSourcesTotal,
-		"discovered_sources_visible":    snap.DiscoveredSourcesVisible,
-		"internal_sources_hidden":       snap.InternalSourcesHidden,
-		"disabled_sources_hidden":       snap.DisabledSourcesHidden,
-		"direct_siem_sources_hidden":    snap.DirectSIEMSourcesHidden,
-		"total_sources":                snap.TotalSources,
-		"configured_sources":           snap.ConfiguredSources,
-		"discovered_sources":           snap.DiscoveredSources,
-		"sources":                      snap.Sources,
+		"generated_at":               snap.GeneratedAt,
+		"source_of_truth":            snap.SourceOfTruth,
+		"ot_collector_url":           snap.OTCollectorURL,
+		"visible_sources":            snap.VisibleSources,
+		"hidden_sources":             snap.HiddenSources,
+		"configured_sources_total":   snap.ConfiguredSourcesTotal,
+		"discovered_sources_visible": snap.DiscoveredSourcesVisible,
+		"internal_sources_hidden":    snap.InternalSourcesHidden,
+		"disabled_sources_hidden":    snap.DisabledSourcesHidden,
+		"direct_siem_sources_hidden": snap.DirectSIEMSourcesHidden,
+		"total_sources":              snap.TotalSources,
+		"configured_sources":         snap.ConfiguredSources,
+		"discovered_sources":         snap.DiscoveredSources,
+		"sources":                    snap.Sources,
 	}
 }
 
@@ -297,19 +297,19 @@ func (a *App) SourcesSummaryWithOptions(includeInternal, includeDisabled, includ
 		IncludeDirectSIEM: includeDirectSIEM,
 	})
 	return map[string]any{
-		"generated_at":                 summary.GeneratedAt,
-		"visible_sources":              summary.VisibleSources,
-		"hidden_sources":               summary.HiddenSources,
-		"configured_sources_total":     summary.ConfiguredSourcesTotal,
-		"discovered_sources_visible":    summary.DiscoveredSourcesVisible,
-		"internal_sources_hidden":       summary.InternalSourcesHidden,
-		"disabled_sources_hidden":       summary.DisabledSourcesHidden,
-		"direct_siem_sources_hidden":    summary.DirectSIEMSourcesHidden,
-		"by_group":                     summary.ByGroup,
-		"by_source_type":               summary.BySourceType,
-		"by_zone":                      summary.ByZone,
-		"by_severity":                  summary.BySeverity,
-		"by_category":                  summary.ByCategory,
+		"generated_at":               summary.GeneratedAt,
+		"visible_sources":            summary.VisibleSources,
+		"hidden_sources":             summary.HiddenSources,
+		"configured_sources_total":   summary.ConfiguredSourcesTotal,
+		"discovered_sources_visible": summary.DiscoveredSourcesVisible,
+		"internal_sources_hidden":    summary.InternalSourcesHidden,
+		"disabled_sources_hidden":    summary.DisabledSourcesHidden,
+		"direct_siem_sources_hidden": summary.DirectSIEMSourcesHidden,
+		"by_group":                   summary.ByGroup,
+		"by_source_type":             summary.BySourceType,
+		"by_zone":                    summary.ByZone,
+		"by_severity":                summary.BySeverity,
+		"by_category":                summary.ByCategory,
 	}
 }
 
@@ -335,20 +335,20 @@ func (a *App) InternalSources() map[string]any {
 		}
 	}
 	return map[string]any{
-		"generated_at":              snap.GeneratedAt,
-		"source_of_truth":           snap.SourceOfTruth,
-		"ot_collector_url":          snap.OTCollectorURL,
-		"visible_sources":           len(filtered),
-		"hidden_sources":            snap.TotalSources - len(filtered),
+		"generated_at":               snap.GeneratedAt,
+		"source_of_truth":            snap.SourceOfTruth,
+		"ot_collector_url":           snap.OTCollectorURL,
+		"visible_sources":            len(filtered),
+		"hidden_sources":             snap.TotalSources - len(filtered),
 		"configured_sources_total":   snap.ConfiguredSourcesTotal,
 		"discovered_sources_visible": snap.DiscoveredSourcesVisible,
 		"internal_sources_hidden":    snap.InternalSourcesHidden,
 		"disabled_sources_hidden":    snap.DisabledSourcesHidden,
 		"direct_siem_sources_hidden": snap.DirectSIEMSourcesHidden,
-		"total_sources":             len(filtered),
-		"configured_sources":        configured,
-		"discovered_sources":        discovered,
-		"sources":                   filtered,
+		"total_sources":              len(filtered),
+		"configured_sources":         configured,
+		"discovered_sources":         discovered,
+		"sources":                    filtered,
 	}
 }
 
@@ -478,10 +478,10 @@ func (a *App) TestSplunk() (map[string]any, error) {
 	cfg := a.cfg.Splunk
 	if !cfg.Enabled {
 		return map[string]any{
-			"status":         "failed",
-			"http_status":    0,
+			"status":          "failed",
+			"http_status":     0,
 			"splunk_response": "",
-			"error":          "splunk hec is disabled",
+			"error":           "splunk hec is disabled",
 		}, nil
 	}
 	test := event.Event{
@@ -504,17 +504,17 @@ func (a *App) TestSplunk() (map[string]any, error) {
 	result, err := a.splunkForwarder().Send(cfg.URL, cfg.Token, cfg.Source, cfg.Index, test)
 	if err != nil {
 		return map[string]any{
-			"status":         "failed",
-			"http_status":    result.StatusCode,
+			"status":          "failed",
+			"http_status":     result.StatusCode,
 			"splunk_response": result.Body,
-			"error":          err.Error(),
+			"error":           err.Error(),
 		}, nil
 	}
 	return map[string]any{
-		"status":         "ok",
-		"http_status":    result.StatusCode,
+		"status":          "ok",
+		"http_status":     result.StatusCode,
 		"splunk_response": result.Body,
-		"error":          "",
+		"error":           "",
 	}, nil
 }
 
@@ -732,18 +732,18 @@ func (a *App) runSelfTelemetry(ctx context.Context) {
 			splunkSuccesses := int64FromAny(splunk["splunk_success_count"])
 			splunkFailures := int64FromAny(splunk["splunk_failed_count"])
 			raw := map[string]any{
-				"events_received":    total,
-				"events_forwarded":   splunkSuccesses,
-				"events_dropped":     q.Failed,
-				"spool_event_count":  q.Queued,
-				"queue_depth":        q.Queued,
-				"hec_url":            splunk["splunk_hec_url"],
-				"hec_error":          splunk["splunk_last_error"],
-				"splunk_successes":   splunkSuccesses,
-				"splunk_failures":    splunkFailures,
-				"last_success_at":    splunk["splunk_last_success_at"],
-				"last_failure_at":    splunk["splunk_last_failure_at"],
-				"latest_event_time":  a.stats.LatestEventTimestamp(),
+				"events_received":   total,
+				"events_forwarded":  splunkSuccesses,
+				"events_dropped":    q.Failed,
+				"spool_event_count": q.Queued,
+				"queue_depth":       q.Queued,
+				"hec_url":           splunk["splunk_hec_url"],
+				"hec_error":         splunk["splunk_last_error"],
+				"splunk_successes":  splunkSuccesses,
+				"splunk_failures":   splunkFailures,
+				"last_success_at":   splunk["splunk_last_success_at"],
+				"last_failure_at":   splunk["splunk_last_failure_at"],
+				"latest_event_time": a.stats.LatestEventTimestamp(),
 			}
 			_ = a.emitSelfTelemetry("dmz_collector_heartbeat", "info", "system_health", raw)
 			if cfg.EmitEventFlowCounters && total > lastTotal {
@@ -785,10 +785,10 @@ func (a *App) emitSelfTelemetry(message, severity, category string, raw map[stri
 	tags := map[string]any{
 		"component":               "dmz_collector",
 		"zone":                    "DMZ",
-		"collector_decision_hint":  "sample_or_drop",
+		"collector_decision_hint": "sample_or_drop",
 		"risk_level":              risk,
 		"normalized":              true,
-		"normalization_source":     "logs_by_sources_md",
+		"normalization_source":    "logs_by_sources_md",
 		"parser_version":          "v2.logs_by_sources_md",
 		"splunk_sourcetype":       "labshock:dmz:dmz_collector",
 		"siem_index_hint":         "ot_security",

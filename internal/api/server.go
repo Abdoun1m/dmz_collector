@@ -39,18 +39,20 @@ type Core interface {
 }
 
 type API struct {
-	addr        string
-	ingestToken string
-	core        Core
-	streamHub   *StreamHub
+	addr           string
+	ingestToken    string
+	gdsEventsToken string
+	core           Core
+	streamHub      *StreamHub
 }
 
-func New(addr string, ingestToken string, core Core, streamHub *StreamHub) *API {
+func New(addr string, ingestToken string, gdsEventsToken string, core Core, streamHub *StreamHub) *API {
 	return &API{
-		addr:        addr,
-		ingestToken: ingestToken,
-		core:        core,
-		streamHub:   streamHub,
+		addr:           addr,
+		ingestToken:    ingestToken,
+		gdsEventsToken: gdsEventsToken,
+		core:           core,
+		streamHub:      streamHub,
 	}
 }
 
@@ -77,7 +79,7 @@ func (a *API) Run(ctx context.Context) error {
 	mux.HandleFunc("/queue/status", a.handleQueueStatus)
 	mux.HandleFunc("/ids/alerts", auth.RequireBearer(a.ingestToken, a.handleIDSAlerts))
 	mux.HandleFunc("/vault/audit", auth.RequireBearer(a.ingestToken, a.handleVaultAudit))
-	mux.HandleFunc("/gds/events", auth.RequireBearer(a.ingestToken, a.handleGDSEvents))
+	mux.HandleFunc("/gds/events", auth.RequireBearer(a.gdsEventsToken, a.handleGDSEvents))
 
 	sub, err := fs.Sub(webassets.FS, ".")
 	if err == nil {

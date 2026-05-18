@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -182,4 +183,112 @@ func TestNormalizeGDSEventRedactsSensitiveFields(t *testing.T) {
 	if ev.Tags["fingerprint_sha256"] != "safe" {
 		t.Fatalf("safe fingerprint was not preserved: %#v", ev.Tags)
 	}
+}
+
+func TestNormalizeGDSEventDMZControlPlaneMappings(t *testing.T) {
+	tests := []struct {
+		name       string
+		logMessage string
+		expected   string
+		category   string
+		risk       string
+	}{
+		{"agent auth success", "gds_audit_event: agent_auth_success", "gds_agent_auth_success", "access_control", "LOW"},
+		{"mtls identity success", "gds_audit_event: mtls_client_identity_success", "gds_mtls_client_identity_success", "access_control", "LOW"},
+		{"trustlist read", "gds_audit_event: trustlist_artifact_read", "gds_trustlist_artifact_read", "pki_trust_sync", "LOW"},
+		{"trustlist signature read", "gds_audit_event: trustlist_artifact_sig_read", "gds_trustlist_artifact_signature_read", "pki_trust_sync", "LOW"},
+		{"artifact regenerated", "gds_trust_list_published: artifact_regenerated", "gds_trust_artifact_regenerated", "pki_trust_sync", "MEDIUM"},
+		{"certificate drift read", "gds_audit_event: certificate_drift_read", "gds_certificate_drift_read", "pki_validation", "LOW"},
+		{"certificate telemetry read", "gds_audit_event: certificate_telemetry_read", "gds_certificate_telemetry_read", "pki_validation", "LOW"},
+		{"db connected", "gds_db_connected", "gds_db_connected", "system_health", "LOW"},
+		{"db snapshot", "gds_db_snapshot", "gds_db_snapshot", "system_health", "LOW"},
+		{"heartbeat", "gds_heartbeat", "gds_heartbeat", "system_health", "LOW"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := []byte(fmt.Sprintf(`{"log_message":%q}`, tt.logMessage))
+			ev, err := NormalizeGDSEvent(raw)
+			if err != nil {
+				t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+			}
+			if ev.Message != tt.expected || ev.EventCategory != tt.category || ev.Severity != "info" {
+				t.Fatalf("unexpected classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+			}
+			if ev.Tags["gds_action"] != extractExpectedAction(tt.logMessage) {
+				t.Fatalf("unexpected gds_action tag: %#v", ev.Tags["gds_action"])
+			}
+			if ev.Tags["risk_level"] != tt.risk {
+				t.Fatalf("unexpected risk_level tag: %#v", ev.Tags["risk_level"])
+			}
+			if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage {
+				t.Fatalf("expected parsed tags and original log message, got %#v", ev.Tags)
+			}
+		})
+	}
+}
+
+func TestNormalizeGDSEventDMZUnknownAction(t *testing.T) {
+	raw := []byte(`{"log_message":"gds_audit_event: unknown_new_event"}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "gds_event_unknown" || ev.EventCategory != "system" || ev.Severity != "info" {
+		t.Fatalf("unexpected unknown classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Tags["gds_action"] != "unknown_new_event" || ev.Tags["risk_level"] != "MEDIUM" {
+		t.Fatalf("unexpected unknown tags: %#v", ev.Tags)
+	}
+}
+
+func TestNormalizeGDSEventDMZExtractsLogMessageFromRawVariants(t *testing.T) {
+	tests := []struct {
+		name       string
+		payload    string
+		expected   string
+		expectedFM string
+	}{
+		{
+			name:       "raw object",
+			payload:    `{"raw":{"log_message":"gds_audit_event: trustlist_artifact_read"}}`,
+			expected:   "gds_trustlist_artifact_read",
+			expectedFM: "gds_audit_event",
+		},
+		{
+			name:       "raw json string",
+			payload:    `{"raw":"{\"log_message\":\"gds_audit_event: trustlist_artifact_sig_read\"}"}`,
+			expected:   "gds_trustlist_artifact_signature_read",
+			expectedFM: "gds_audit_event",
+		},
+		{
+			name:       "raw plain gds string",
+			payload:    `{"raw":"gds_heartbeat"}`,
+			expected:   "gds_heartbeat",
+			expectedFM: "gds_runtime",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev, err := NormalizeGDSEvent([]byte(tt.payload))
+			if err != nil {
+				t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+			}
+			if ev.Message != tt.expected {
+				t.Fatalf("unexpected message: %s", ev.Message)
+			}
+			if ev.Tags["gds_family"] != tt.expectedFM {
+				t.Fatalf("unexpected gds_family: %#v", ev.Tags["gds_family"])
+			}
+		})
+	}
+}
+
+func extractExpectedAction(logMessage string) string {
+	parts := strings.SplitN(logMessage, ":", 2)
+	if len(parts) == 2 {
+		return strings.TrimSpace(parts[1])
+	}
+	return strings.TrimSpace(logMessage)
 }
