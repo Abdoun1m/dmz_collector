@@ -410,17 +410,21 @@ func classifyGDSDMZAction(action string) gdsClassification {
 	case "trustlist_artifact_sig_read":
 		return gdsClassification{Message: "gds_client_pull_success", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
 	case "artifact_regenerated":
-		return gdsClassification{Message: "gds_trust_list_published", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW", AlertCandidate: true}
+		return gdsClassification{Message: "gds_trust_list_published", Category: "pki_trust_sync", Severity: "info", RiskLevel: "MEDIUM", AlertCandidate: false}
 	case "trustlist_build":
 		return gdsClassification{Message: "gds_trust_list_updated", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
 	case "certificate_drift_read":
 		return gdsClassification{Message: "gds_certificate_drift_read", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
 	case "certificate_telemetry_read":
-		return gdsClassification{Message: "gds_certificate_telemetry_read", Category: "operator_action", Severity: "info", RiskLevel: "LOW"}
+		return gdsClassification{Message: "gds_certificate_telemetry_read", Category: "pki_validation", Severity: "info", RiskLevel: "LOW"}
 	case "component_status_read":
 		return gdsClassification{Message: "gds_component_status_read", Category: "operator_action", Severity: "info", RiskLevel: "LOW"}
 	case "signing_trust_anchor_read":
 		return gdsClassification{Message: "gds_trust_anchor_read", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
+	case "component_trust_material_read":
+		return gdsClassification{Message: "gds_client_pull_success", Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW"}
+	case "vault_unsealed_detected":
+		return gdsClassification{Message: "gds_vault_unsealed_detected", Category: "system_health", Severity: "info", RiskLevel: "MEDIUM"}
 	case "gds_db_connected":
 		return gdsClassification{Message: "gds_db_connected", Category: "system_health", Severity: "info", RiskLevel: "LOW"}
 	case "gds_db_snapshot":
@@ -570,7 +574,7 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 		if et == "certificate_drift_read" {
 			return gdsClassification{"gds_certificate_drift_read", "pki_validation", "info", "LOW", false}
 		}
-		return gdsClassification{"gds_certificate_telemetry_read", "operator_action", "info", "LOW", false}
+		return gdsClassification{"gds_certificate_telemetry_read", "pki_validation", "info", "LOW", false}
 	case "component_status_read":
 		return gdsClassification{"gds_component_status_read", "operator_action", "info", "LOW", false}
 	case "signing_trust_anchor_read":
@@ -640,7 +644,7 @@ func classifyGDSEvent(eventType string, rec map[string]any, msgText string) gdsC
 		return gdsClassification{"gds_enrollment_approved", "pki_lifecycle", "info", "LOW", false}
 	}
 	if strings.Contains(text, "artifact regenerated") || strings.Contains(text, "trustlist_artifact_rebuild") {
-		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "LOW", true}
+		return gdsClassification{"gds_trust_list_published", "pki_trust_sync", "info", "MEDIUM", false}
 	}
 	if strings.Contains(text, "trustlist") && strings.Contains(text, "artifact") && (strings.Contains(text, "failed") || strings.Contains(text, "error")) {
 		return gdsClassification{"gds_trust_list_pull_failed", "pki_trust_sync", "warning", "MEDIUM", true}
