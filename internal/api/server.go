@@ -76,6 +76,7 @@ func (a *API) Run(ctx context.Context) error {
 	mux.HandleFunc("/forwarding/flush", a.handleForwardingFlush)
 	mux.HandleFunc("/queue/status", a.handleQueueStatus)
 	mux.HandleFunc("/ids/alerts", auth.RequireBearer(a.ingestToken, a.handleIDSAlerts))
+	mux.HandleFunc("/vault/audit", auth.RequireBearer(a.ingestToken, a.handleVaultAudit))
 
 	sub, err := fs.Sub(webassets.FS, ".")
 	if err == nil {

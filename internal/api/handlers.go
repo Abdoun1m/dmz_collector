@@ -61,10 +61,10 @@ func (a *API) handleSplunkTest(w http.ResponseWriter, r *http.Request) {
 	result, err := a.core.TestSplunk()
 	if err != nil {
 		ingest.WriteJSON(w, http.StatusBadGateway, map[string]any{
-			"status":         "failed",
-			"http_status":    0,
+			"status":          "failed",
+			"http_status":     0,
 			"splunk_response": "",
-			"error":          err.Error(),
+			"error":           err.Error(),
 		})
 		return
 	}
@@ -288,6 +288,32 @@ func (a *API) handleIDSAlerts(w http.ResponseWriter, r *http.Request) {
 	ingest.WriteJSON(w, http.StatusAccepted, map[string]any{"accepted": 1, "rejected": 0, "queued": 1, "errors": []string{}})
 }
 
+func (a *API) handleVaultAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4*1024*1024))
+	if err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	events, err := ingest.NormalizeVaultAuditMany(body)
+	if err != nil {
+		ingest.WriteJSON(w, http.StatusBadRequest, map[string]any{
+			"accepted": 0, "rejected": 1, "queued": 0, "errors": []string{err.Error()},
+		})
+		return
+	}
+	accepted, rejected, queued, errs := a.core.IngestBatch(events)
+	ingest.WriteJSON(w, http.StatusAccepted, map[string]any{
+		"accepted": accepted,
+		"rejected": rejected,
+		"queued":   queued,
+		"errors":   errs,
+	})
+}
+
 func (a *API) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -341,4 +367,3 @@ func firstNonEmpty(a, b string) string {
 	}
 	return b
 }
-

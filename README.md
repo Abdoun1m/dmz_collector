@@ -170,7 +170,51 @@ index=ot_security zone="DMZ" source_type="dmz_collector"
 | sort staleness_min
 ```
 
+## 9.2 Vault Audit Ingest
+
+Vault keeps its native file audit device enabled and sends raw audit records to the DMZ Collector. The DMZ Collector owns Vault parsing and emits normalized `source_type=vault` events.
+
+Flow:
+
+- Vault audit device writes JSONL to `/vault/logs/vault_audit.jsonl`.
+- A minimal Vault-side sender posts each raw audit JSON line to `POST /vault/audit`.
+- DMZ Collector classifies the audit record, stores it, spools it, enriches it, and forwards it to Splunk as `sourcetype=labshock:dmz:vault`.
+
+Endpoint:
+
+- `POST /vault/audit`
+- Accepts one Vault audit JSON object, an array, or JSONL records.
+- Uses the same optional `Authorization: Bearer <DMZ_INGEST_TOKEN>` policy as `/events`.
+
+From `labshock_vault`, a simple `wget` test:
+
+```sh
+tail -n 1 /vault/logs/vault_audit.jsonl > /tmp/vault-audit-one.json
+wget -qO- \
+  --header='Content-Type: application/json' \
+  --post-file=/tmp/vault-audit-one.json \
+  http://192.168.10.70:9000/vault/audit
+```
+
+For continuous forwarding, copy `deploy/vault_audit_forwarder.sh` into the Vault container or bake it into the Vault image, then run it with:
+
+```sh
+VAULT_AUDIT_FILE=/vault/logs/vault_audit.jsonl \
+DMZ_COLLECTOR_URL=http://192.168.10.70:9000/vault/audit \
+sh /usr/local/bin/vault_audit_forwarder.sh
+```
+
+Splunk validation:
+
+```spl
+index=ot_security zone="DMZ" source_type="vault"
+| table _time sourcetype source_type asset_name message event_category severity tags.alert_candidate tags.risk_level raw
+| sort - _time
+```
+
 ## 10. API Endpoints
+
+- `POST /vault/audit` - ingest native Vault audit JSON, arrays, or JSONL and normalize to `source_type=vault`.
 
 The DMZ collector exposes an HTTP API. These routes reflect the current code:
 
