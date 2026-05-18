@@ -30,7 +30,7 @@ func TestNormalizeGDSEventCertificateIssued(t *testing.T) {
 	if ev.Message != "gds_certificate_issued" || ev.EventCategory != "certificate_lifecycle" || ev.Severity != "info" {
 		t.Fatalf("unexpected classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
 	}
-	if ev.Tags["splunk_sourcetype"] != "labshock:dmz:gds" || ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
+	if ev.Tags["splunk_sourcetype"] != "labshock:dmz:gds" || ev.Tags["parser_version"] != "v3.1.gds_compact_action_mapping" {
 		t.Fatalf("unexpected tags: %#v", ev.Tags)
 	}
 	if ev.Tags["application_uri"] != "urn:dataprotect:opcua:dmz-gateway-client" || ev.Tags["fingerprint_sha256"] != "abc123" {
@@ -47,8 +47,8 @@ func TestNormalizeGDSEventTrustListPublishedFromJSONLog(t *testing.T) {
 	if ev.Message != "gds_trust_list_published" || ev.EventCategory != "pki_trust_sync" {
 		t.Fatalf("unexpected trust-list classification: %s %s", ev.Message, ev.EventCategory)
 	}
-	if ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
-		t.Fatalf("expected parser version v3, got %#v", ev.Tags["parser_version"])
+	if ev.Tags["parser_version"] != "v3.1.gds_compact_action_mapping" {
+		t.Fatalf("expected parser version v3.1, got %#v", ev.Tags["parser_version"])
 	}
 }
 
@@ -261,7 +261,7 @@ func TestNormalizeGDSEventDMZControlPlaneMappings(t *testing.T) {
 			if ev.Tags["risk_level"] != tt.risk {
 				t.Fatalf("unexpected risk_level tag: %#v", ev.Tags["risk_level"])
 			}
-			if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage || ev.Tags["parser_version"] != "v3.gds_dmz_normalization" {
+			if ev.Tags["gds_family"] == "" || ev.Tags["log_message"] != tt.logMessage || ev.Tags["parser_version"] != "v3.1.gds_compact_action_mapping" {
 				t.Fatalf("expected parsed tags and original log message, got %#v", ev.Tags)
 			}
 		})

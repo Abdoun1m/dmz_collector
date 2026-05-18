@@ -206,7 +206,7 @@ func buildGDSEvent(rec map[string]any, class gdsClassification, eventType, msgTe
 		"risk_level":              class.RiskLevel,
 		"normalized":              true,
 		"normalization_source":    "logs_by_sources_md",
-		"parser_version":          "v3.gds_dmz_normalization",
+		"parser_version":          "v3.1.gds_compact_action_mapping",
 		"splunk_sourcetype":       gdsSourcetype,
 		"siem_index_hint":         "ot_security",
 		"gds_family":              family,
@@ -287,7 +287,7 @@ func buildGDSDMZControlPlaneEvent(rec map[string]any, dmz gdsDMZControlPlane) ev
 		"collector_decision_hint": "store_forward",
 		"normalized":              true,
 		"normalization_source":    "logs_by_sources_md",
-		"parser_version":          "v3.gds_dmz_normalization",
+		"parser_version":          "v3.1.gds_compact_action_mapping",
 		"splunk_sourcetype":       gdsSourcetype,
 		"siem_index_hint":         "ot_security",
 	}
