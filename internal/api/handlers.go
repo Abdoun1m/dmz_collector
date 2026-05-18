@@ -314,6 +314,32 @@ func (a *API) handleVaultAudit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *API) handleGDSEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4*1024*1024))
+	if err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	events, err := ingest.NormalizeGDSEventsMany(body)
+	if err != nil {
+		ingest.WriteJSON(w, http.StatusBadRequest, map[string]any{
+			"accepted": 0, "rejected": 1, "queued": 0, "errors": []string{err.Error()},
+		})
+		return
+	}
+	accepted, rejected, queued, errs := a.core.IngestBatch(events)
+	ingest.WriteJSON(w, http.StatusAccepted, map[string]any{
+		"accepted": accepted,
+		"rejected": rejected,
+		"queued":   queued,
+		"errors":   errs,
+	})
+}
+
 func (a *API) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

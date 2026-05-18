@@ -119,6 +119,7 @@ Available now:
 
 - Firewall syslog listener (UDP): `0.0.0.0:5514` (configurable)
 - IDS alert endpoint: `POST /ids/alerts` with Suricata-like EVE alert payload
+- GDS event endpoint: `POST /gds/events` for raw GDS API rows, JSON/JSONL logs, health snapshots, and text lines
 - Optional OT subscribe mode via SSE (`OT_SSE_ENABLED=true`)
 - DMZ Collector self-telemetry (`DMZ_SELF_TELEMETRY_ENABLED=true`) emits `source_type=dmz_collector` events for startup, heartbeat, HEC failures/recovery, and spool growth.
 
@@ -214,6 +215,7 @@ index=ot_security zone="DMZ" source_type="vault"
 
 ## 10. API Endpoints
 
+- `POST /gds/events` - ingest GDS JSON, JSONL, health snapshots, or text lines and normalize to `source_type=gds`.
 - `POST /vault/audit` - ingest native Vault audit JSON, arrays, or JSONL and normalize to `source_type=vault`.
 
 The DMZ collector exposes an HTTP API. These routes reflect the current code:
