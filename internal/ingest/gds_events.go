@@ -251,11 +251,10 @@ func buildGDSEvent(rec map[string]any, class gdsClassification, eventType, msgTe
 
 func isGDSOPCUAFacadeEvent(rec map[string]any) bool {
 	tags := mapAny(rec["tags"])
-	msg := strings.ToLower(strings.TrimSpace(firstString(rec, "message")))
 	return strings.EqualFold(firstString(rec, "source_type"), "gds") && strings.EqualFold(firstString(rec, "source"), "gds_opcua_facade") ||
 		strings.EqualFold(stringAny(tags["component"]), "gds_opcua_facade") ||
 		strings.EqualFold(stringAny(tags["parser_version"]), "v3.3.gds_opcua_facade") ||
-		strings.HasPrefix(msg, "gds_opcua_")
+		extractGDSOPCUAFacadeMessage(rec) != ""
 }
 
 func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
@@ -270,11 +269,8 @@ func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
 	}
 	rawFields = redactGDSOPCUAFacadeValue(rawFields).(map[string]any)
 
-	message := strings.ToLower(strings.TrimSpace(firstString(rec, "message")))
-	if !strings.HasPrefix(message, "gds_opcua_") {
-		message = strings.ToLower(strings.TrimSpace(firstString(rawFields, "event_type", "message")))
-	}
-	if !strings.HasPrefix(message, "gds_opcua_") {
+	message := extractGDSOPCUAFacadeMessage(rec)
+	if message == "" {
 		message = "gds_opcua_method_called"
 	}
 	class := classifyGDSOPCUAFacadeMessage(message)
@@ -298,7 +294,7 @@ func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
 	tags["collector_decision_hint"] = "store_forward"
 	tags["risk_level"] = class.RiskLevel
 
-	for _, key := range []string{"method_name", "method_class", "application_uri", "decision", "reason", "result_code", "duration_ms", "correlation_id", "opcua_session_id"} {
+	for _, key := range gdsOPCUAFacadeMetadataKeys {
 		copySafeField(tags, rawFields, key, key)
 	}
 	if class.AlertCandidate {
@@ -322,13 +318,62 @@ func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
 		Tags:          compactGDSMap(tags),
 		ExtraFields:   map[string]any{"risk_level": class.RiskLevel},
 	}
-	for _, key := range []string{"method_name", "method_class", "application_uri", "decision", "reason", "result_code", "duration_ms", "correlation_id", "opcua_session_id"} {
+	for _, key := range gdsOPCUAFacadeMetadataKeys {
 		if v, ok := rawFields[key]; ok {
 			ev.ExtraFields[key] = v
 		}
 	}
 	ev.EnsureDefaults()
 	return ev
+}
+
+var gdsOPCUAFacadeMetadataKeys = []string{
+	"method_name", "method_class", "application_uri", "decision", "reason", "result_code",
+	"duration_ms", "correlation_id", "opcua_session_id", "gds_action", "gds_family", "log_message",
+}
+
+func extractGDSOPCUAFacadeMessage(rec map[string]any) string {
+	tags := mapAny(rec["tags"])
+	rawFields := mapAny(rec["raw"])
+	candidates := []string{
+		firstString(rec, "message"),
+		firstString(rec, "gds_action"),
+		firstString(rec, "log_message"),
+		firstString(rawFields, "message", "event_type", "gds_action", "log_message"),
+		firstString(tags, "message", "event_type", "gds_action", "log_message"),
+	}
+	if rawText := strings.TrimSpace(stringAny(rec["raw"])); rawText != "" {
+		candidates = append(candidates, rawText, parseGDSRawText(rawText))
+		var rawObj map[string]any
+		if err := json.Unmarshal([]byte(rawText), &rawObj); err == nil {
+			candidates = append(candidates, firstString(rawObj, "message", "event_type", "gds_action", "log_message"))
+		}
+	}
+	for _, candidate := range candidates {
+		if msg := canonicalGDSOPCUAFacadeMessage(candidate); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+func canonicalGDSOPCUAFacadeMessage(value string) string {
+	text := strings.ToLower(strings.TrimSpace(value))
+	if text == "" {
+		return ""
+	}
+	if idx := strings.Index(text, ":"); idx >= 0 {
+		text = strings.TrimSpace(text[idx+1:])
+	}
+	fields := strings.Fields(text)
+	if len(fields) > 0 {
+		text = fields[0]
+	}
+	text = strings.Trim(text, `"'`)
+	if strings.HasPrefix(text, "gds_opcua_") {
+		return text
+	}
+	return ""
 }
 
 func classifyGDSOPCUAFacadeMessage(message string) gdsClassification {
@@ -949,7 +994,7 @@ func isGDSOPCUAFacadeSensitiveKey(key string) bool {
 	k := strings.ToLower(strings.TrimSpace(key))
 	k = strings.NewReplacer("-", "_", ".", "_").Replace(k)
 	switch k {
-	case "private_key", "key", "token", "secret", "password", "client_token", "secret_id", "role_id", "accessor", "authorization":
+	case "private_key", "key", "token", "secret", "password", "client_token", "secret_id", "role_id", "accessor", "authorization", "x_vault_token", "x_gds_agent_token":
 		return true
 	default:
 		return false
@@ -959,7 +1004,11 @@ func isGDSOPCUAFacadeSensitiveKey(key string) bool {
 func looksLikeGDSOPCUAFacadeSecret(value string) bool {
 	lower := strings.ToLower(value)
 	return strings.Contains(lower, "-----begin private key-----") ||
+		strings.Contains(lower, "-----begin rsa private key-----") ||
+		strings.Contains(lower, "-----begin ec private key-----") ||
 		strings.Contains(lower, "-----end private key-----") ||
+		strings.Contains(lower, "-----end rsa private key-----") ||
+		strings.Contains(lower, "-----end ec private key-----") ||
 		strings.HasPrefix(strings.TrimSpace(lower), "bearer ")
 }
 

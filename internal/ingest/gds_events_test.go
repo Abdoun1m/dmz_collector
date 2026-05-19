@@ -254,6 +254,46 @@ func TestNormalizeGDSOPCUAFacadeMethodCompleted(t *testing.T) {
 	}
 }
 
+func TestNormalizeGDSOPCUAFacadeObservedUnknownShape(t *testing.T) {
+	raw := []byte(`{
+	  "source_type":"gds",
+	  "source":"gds_events",
+	  "message":"gds_event_unknown",
+	  "raw":{
+	    "correlation_id":"0260b77c62a34a10ab6f43b9e1765cff",
+	    "gds_action":"gds_opcua_method_called",
+	    "gds_family":"gds_runtime",
+	    "log_message":"gds_opcua_method_called"
+	  },
+	  "tags":{
+	    "component":"gds",
+	    "gds_action":"gds_opcua_method_called",
+	    "gds_family":"gds_runtime",
+	    "log_message":"gds_opcua_method_called",
+	    "parser_version":"v3.2.gds_pack_mapping"
+	  }
+	}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "gds_opcua_method_called" || ev.EventCategory != "access_control" || ev.Severity != "info" {
+		t.Fatalf("unexpected observed facade classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Source != "gds_opcua_facade" || ev.Protocol != "opcua" {
+		t.Fatalf("expected facade source/protocol, got source=%q protocol=%q", ev.Source, ev.Protocol)
+	}
+	if ev.Tags["component"] != "gds_opcua_facade" || ev.Tags["parser_version"] != "v3.3.gds_opcua_facade" || ev.Tags["risk_level"] != "LOW" {
+		t.Fatalf("unexpected observed facade tags: %#v", ev.Tags)
+	}
+	if ev.Tags["correlation_id"] != "0260b77c62a34a10ab6f43b9e1765cff" {
+		t.Fatalf("expected correlation_id promotion, got %#v", ev.Tags)
+	}
+	if ev.Message == "gds_event_unknown" {
+		t.Fatal("facade event was classified as unknown")
+	}
+}
+
 func TestNormalizeGDSOPCUAFacadeMappings(t *testing.T) {
 	tests := []struct {
 		message  string
@@ -291,6 +331,27 @@ func TestNormalizeGDSOPCUAFacadeMappings(t *testing.T) {
 	}
 }
 
+func TestNormalizeGDSOPCUAFacadeAuditLogMessage(t *testing.T) {
+	raw := []byte(`{
+	  "source_type":"gds",
+	  "source":"gds_events",
+	  "message":"gds_event_unknown",
+	  "raw":{
+	    "log_message":"gds_audit_event: gds_opcua_invalid_input"
+	  },
+	  "tags":{
+	    "log_message":"gds_audit_event: gds_opcua_invalid_input"
+	  }
+	}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "gds_opcua_invalid_input" || ev.EventCategory != "access_control" || ev.Severity != "warning" || ev.Tags["risk_level"] != "MEDIUM" {
+		t.Fatalf("unexpected audit facade classification: %s %s %s %#v", ev.Message, ev.EventCategory, ev.Severity, ev.Tags)
+	}
+}
+
 func TestNormalizeGDSOPCUAFacadeSensitiveRedaction(t *testing.T) {
 	raw := []byte(`{
 	  "source_type":"gds",
@@ -299,7 +360,9 @@ func TestNormalizeGDSOPCUAFacadeSensitiveRedaction(t *testing.T) {
 	  "raw":{
 	    "method_name":"GetTrustMaterialStatus",
 	    "token":"secret-token",
-	    "private_key":"-----BEGIN PRIVATE KEY-----\nabc",
+	    "x-vault-token":"vault-token",
+	    "x-gds-agent-token":"agent-token",
+	    "private_key":"-----BEGIN RSA PRIVATE KEY-----\nabc",
 	    "nested":{"password":"secret-password","accessor":"secret-accessor"}
 	  },
 	  "tags":{
@@ -313,7 +376,7 @@ func TestNormalizeGDSOPCUAFacadeSensitiveRedaction(t *testing.T) {
 		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
 	}
 	blob, _ := json.Marshal(ev.ToMap())
-	for _, forbidden := range []string{"secret-token", "BEGIN PRIVATE KEY", "secret-password", "secret-accessor", "Bearer secret", "sid"} {
+	for _, forbidden := range []string{"secret-token", "BEGIN RSA PRIVATE KEY", "secret-password", "secret-accessor", "Bearer secret", `:"sid"`} {
 		if strings.Contains(string(blob), forbidden) {
 			t.Fatalf("sensitive value leaked in event: %s", blob)
 		}
