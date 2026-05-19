@@ -105,6 +105,9 @@ func NormalizeGDSEvent(raw []byte) (event.Event, error) {
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		return event.Event{}, err
 	}
+	if isGDSOPCUAFacadeEvent(rec) {
+		return buildGDSOPCUAFacadeEvent(rec), nil
+	}
 	rec = redactMap(rec)
 	if dmz, ok := normalizeGDSDMZControlPlane(rec); ok {
 		return buildGDSDMZControlPlaneEvent(rec, dmz), nil
@@ -244,6 +247,111 @@ func buildGDSEvent(rec map[string]any, class gdsClassification, eventType, msgTe
 	}
 	ev.EnsureDefaults()
 	return ev
+}
+
+func isGDSOPCUAFacadeEvent(rec map[string]any) bool {
+	tags := mapAny(rec["tags"])
+	msg := strings.ToLower(strings.TrimSpace(firstString(rec, "message")))
+	return strings.EqualFold(firstString(rec, "source_type"), "gds") && strings.EqualFold(firstString(rec, "source"), "gds_opcua_facade") ||
+		strings.EqualFold(stringAny(tags["component"]), "gds_opcua_facade") ||
+		strings.EqualFold(stringAny(tags["parser_version"]), "v3.3.gds_opcua_facade") ||
+		strings.HasPrefix(msg, "gds_opcua_")
+}
+
+func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	ts := firstString(rec, "timestamp", "created_at", "generated_at", "reported_at", "ts", "time")
+	if ts == "" {
+		ts = now
+	}
+	rawFields := mapAny(rec["raw"])
+	if len(rawFields) == 0 {
+		rawFields = map[string]any{}
+	}
+	rawFields = redactGDSOPCUAFacadeValue(rawFields).(map[string]any)
+
+	message := strings.ToLower(strings.TrimSpace(firstString(rec, "message")))
+	if !strings.HasPrefix(message, "gds_opcua_") {
+		message = strings.ToLower(strings.TrimSpace(firstString(rawFields, "event_type", "message")))
+	}
+	if !strings.HasPrefix(message, "gds_opcua_") {
+		message = "gds_opcua_method_called"
+	}
+	class := classifyGDSOPCUAFacadeMessage(message)
+
+	tags := map[string]any{}
+	if incoming := mapAny(rec["tags"]); len(incoming) > 0 {
+		for k, v := range redactGDSOPCUAFacadeValue(incoming).(map[string]any) {
+			tags[k] = v
+		}
+	}
+	tags["component"] = "gds_opcua_facade"
+	tags["source_type"] = "gds"
+	tags["purdue_zone"] = "dmz"
+	tags["zone"] = "DMZ"
+	tags["normalized"] = true
+	tags["parser_version"] = "v3.3.gds_opcua_facade"
+	tags["facade_version"] = "v3.3.gds_opcua_facade"
+	tags["normalization_source"] = "gds_opcua_facade"
+	tags["splunk_sourcetype"] = gdsSourcetype
+	tags["siem_index_hint"] = "ot_security"
+	tags["collector_decision_hint"] = "store_forward"
+	tags["risk_level"] = class.RiskLevel
+
+	for _, key := range []string{"method_name", "method_class", "application_uri", "decision", "reason", "result_code", "duration_ms", "correlation_id", "opcua_session_id"} {
+		copySafeField(tags, rawFields, key, key)
+	}
+	if class.AlertCandidate {
+		tags["alert_candidate"] = true
+	}
+
+	rawJSON, _ := json.Marshal(compactGDSMap(rawFields))
+	ev := event.Event{
+		Timestamp:     ts,
+		ReceivedAt:    now,
+		Zone:          "DMZ",
+		Source:        "gds_opcua_facade",
+		SourceType:    "gds",
+		AssetName:     gdsAssetName,
+		AssetIP:       gdsAssetIP,
+		Severity:      class.Severity,
+		Protocol:      "opcua",
+		EventCategory: class.Category,
+		Message:       message,
+		Raw:           string(rawJSON),
+		Tags:          compactGDSMap(tags),
+		ExtraFields:   map[string]any{"risk_level": class.RiskLevel},
+	}
+	for _, key := range []string{"method_name", "method_class", "application_uri", "decision", "reason", "result_code", "duration_ms", "correlation_id", "opcua_session_id"} {
+		if v, ok := rawFields[key]; ok {
+			ev.ExtraFields[key] = v
+		}
+	}
+	ev.EnsureDefaults()
+	return ev
+}
+
+func classifyGDSOPCUAFacadeMessage(message string) gdsClassification {
+	switch strings.ToLower(strings.TrimSpace(message)) {
+	case "gds_opcua_method_called":
+		return gdsClassification{Message: message, Category: "access_control", Severity: "info", RiskLevel: "LOW"}
+	case "gds_opcua_method_allowed":
+		return gdsClassification{Message: message, Category: "access_control", Severity: "info", RiskLevel: "LOW"}
+	case "gds_opcua_method_denied":
+		return gdsClassification{Message: message, Category: "access_control", Severity: "warning", RiskLevel: "HIGH", AlertCandidate: true}
+	case "gds_opcua_invalid_input":
+		return gdsClassification{Message: message, Category: "access_control", Severity: "warning", RiskLevel: "MEDIUM", AlertCandidate: true}
+	case "gds_opcua_rate_limited":
+		return gdsClassification{Message: message, Category: "access_control", Severity: "warning", RiskLevel: "MEDIUM", AlertCandidate: true}
+	case "gds_opcua_internal_api_failed":
+		return gdsClassification{Message: message, Category: "error", Severity: "error", RiskLevel: "HIGH", AlertCandidate: true}
+	case "gds_opcua_sensitive_material_blocked":
+		return gdsClassification{Message: message, Category: "data_protection", Severity: "critical", RiskLevel: "CRITICAL", AlertCandidate: true}
+	case "gds_opcua_method_completed":
+		return gdsClassification{Message: message, Category: "system_health", Severity: "info", RiskLevel: "LOW"}
+	default:
+		return gdsClassification{Message: message, Category: "access_control", Severity: "info", RiskLevel: "LOW"}
+	}
 }
 
 func normalizeGDSDMZControlPlane(rec map[string]any) (gdsDMZControlPlane, bool) {
@@ -807,6 +915,52 @@ func redactMap(in map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+func redactGDSOPCUAFacadeValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, item := range t {
+			if isGDSOPCUAFacadeSensitiveKey(k) {
+				out[k] = "[REDACTED]"
+				continue
+			}
+			out[k] = redactGDSOPCUAFacadeValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(t))
+		for _, item := range t {
+			out = append(out, redactGDSOPCUAFacadeValue(item))
+		}
+		return out
+	case string:
+		if looksLikeGDSOPCUAFacadeSecret(t) {
+			return "[REDACTED]"
+		}
+		return t
+	default:
+		return v
+	}
+}
+
+func isGDSOPCUAFacadeSensitiveKey(key string) bool {
+	k := strings.ToLower(strings.TrimSpace(key))
+	k = strings.NewReplacer("-", "_", ".", "_").Replace(k)
+	switch k {
+	case "private_key", "key", "token", "secret", "password", "client_token", "secret_id", "role_id", "accessor", "authorization":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeGDSOPCUAFacadeSecret(value string) bool {
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, "-----begin private key-----") ||
+		strings.Contains(lower, "-----end private key-----") ||
+		strings.HasPrefix(strings.TrimSpace(lower), "bearer ")
 }
 
 func isGDSSensitiveKey(key string) bool {
