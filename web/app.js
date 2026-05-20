@@ -1,3 +1,8 @@
+/* =========================================================
+   DataProtect DMZ Collector — Frontend App
+   All API calls preserved. No fake data.
+   ========================================================= */
+
 const API_BASE = String(window.DMZ_COLLECTOR_API_BASE || localStorage.getItem("dmz_api_base") || "").replace(/\/$/, "");
 const MAX_LIVE_EVENTS = 300;
 
@@ -49,6 +54,7 @@ const state = {
   },
 };
 
+/* ── DOM refs ──────────────────────────────────────────────── */
 const tabs = document.querySelectorAll(".tabs button");
 const jsonModal = document.getElementById("json-modal");
 const jsonModalBody = document.getElementById("json-modal-body");
@@ -64,22 +70,17 @@ tabs.forEach((btn) => {
   });
 });
 
+/* ── API adapter (unchanged) ───────────────────────────────── */
 async function api(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
     ...opts,
-    headers: {
-      ...(opts.headers || {}),
-    },
+    headers: { ...(opts.headers || {}) },
   });
   const text = await res.text();
   let body = null;
   if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
+    try { body = JSON.parse(text); } catch { body = text; }
   }
   if (!res.ok) {
     const msg = typeof body === "string" ? body : body?.error || body?.errors?.join(", ") || res.statusText;
@@ -88,6 +89,7 @@ async function api(path, opts = {}) {
   return body ?? {};
 }
 
+/* ── Core utilities (unchanged) ────────────────────────────── */
 function setError(key, err) {
   if (err) state.errors[key] = err.message || String(err);
   else delete state.errors[key];
@@ -116,9 +118,7 @@ function asObject(v) {
     try {
       const parsed = JSON.parse(v);
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { value: parsed };
-    } catch {
-      return { detail: v };
-    }
+    } catch { return { detail: v }; }
   }
   return { value: v };
 }
@@ -151,30 +151,78 @@ function normalizeEvent(e) {
   };
 }
 
+/* ── Notice/error/empty blocks ─────────────────────────────── */
 function errorBlock(key) {
   if (!state.errors[key]) return "";
-  return `<div class="notice error">${esc(state.errors[key])}</div>`;
+  return `<div class="notice error">&#9888; ${esc(state.errors[key])}</div>`;
 }
 
 function noticeBlock(key) {
   if (!state.notices[key]) return "";
-  return `<div class="notice ok">${esc(state.notices[key])}</div>`;
+  return `<div class="notice ok">&#10003; ${esc(state.notices[key])}</div>`;
 }
 
 function emptyState(text) {
   return `<div class="empty">${esc(text)}</div>`;
 }
 
-function card(label, value, sub = "") {
-  return `<article class="card"><div class="label">${esc(label)}</div><div class="kpi">${esc(value)}</div>${sub ? `<small>${esc(sub)}</small>` : ""}</article>`;
+/* ── Theme toggle ──────────────────────────────────────────── */
+function initTheme() {
+  const saved = localStorage.getItem("dmz-theme") || "dark";
+  document.documentElement.setAttribute("data-theme", saved);
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  btn.title = "Toggle light/dark mode";
+  btn.innerHTML = saved === "light" ? "&#9790;" : "&#9788;";
+  btn.addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("dmz-theme", next);
+    btn.innerHTML = next === "light" ? "&#9790;" : "&#9788;";
+  });
 }
 
-function badge(value, prefix = "sev") {
+/* ── Render helpers ────────────────────────────────────────── */
+function card(label, value, sub) {
+  return `<article class="card">
+    <div class="label">${esc(label)}</div>
+    <div class="kpi">${esc(value)}</div>
+    ${sub ? `<div class="stat-sub">${esc(sub)}</div>` : ""}
+  </article>`;
+}
+
+function statCard(label, value, sub, accent) {
+  const ac = accent ? ` ac-${esc(accent)}` : "";
+  return `<article class="stat-card${ac}">
+    <div class="stat-label">${esc(label)}</div>
+    <div class="stat-value">${esc(value)}</div>
+    ${sub ? `<div class="stat-sub">${esc(sub)}</div>` : ""}
+  </article>`;
+}
+
+function badge(value, prefix) {
   const v = String(safe(value, "unknown")).toLowerCase();
-  return `<span class="badge ${prefix}-${esc(v)}">${esc(value)}</span>`;
+  const p = prefix || "sev";
+  return `<span class="badge ${esc(p)}-${esc(v)}">${esc(value)}</span>`;
 }
 
-function objectEntriesBars(obj = {}) {
+function decisionBadge(decision) {
+  const d = String(decision || "").toLowerCase();
+  let cls = "action-unknown";
+  if (d.includes("drop")) cls = "action-drop";
+  else if (d.includes("forward")) cls = "action-forward";
+  else if (d.includes("sample")) cls = "action-sample";
+  else if (d.includes("store")) cls = "action-store";
+  else if (d.includes("keep")) cls = "action-keep";
+  return `<span class="badge ${cls}">${esc(decision || "–")}</span>`;
+}
+
+function statusDot(ok) {
+  const cls = ok === true ? "ok" : ok === false ? "err" : "off";
+  return `<span class="status-dot ${cls}"></span>`;
+}
+
+function objectEntriesBars(obj) {
   const entries = Object.entries(obj || {}).sort((a, b) => Number(b[1]) - Number(a[1]));
   if (!entries.length) return emptyState("No data yet.");
   const max = Math.max(...entries.map(([, v]) => Number(v) || 0), 1);
@@ -183,47 +231,143 @@ function objectEntriesBars(obj = {}) {
       <span>${esc(k)}</span>
       <div class="bar"><span style="width:${Math.max(2, (Number(v) || 0) / max * 100)}%"></span></div>
       <strong>${esc(v)}</strong>
-    </div>
-  `).join("")}</div>`;
+    </div>`).join("")}</div>`;
+}
+
+function miniPipeline(nodes) {
+  return `<div class="mini-pipeline">
+    ${nodes.map((n, i) => `
+      ${i > 0 ? `<span class="pipeline-arrow">&#8594;</span>` : ""}
+      <div class="pipeline-node ${esc(n.cls || "")}">${esc(n.label)}</div>
+    `).join("")}
+  </div>`;
+}
+
+function renderApiHealthGrid() {
+  const checks = [
+    { path: "/health",            ok: !!(state.health?.status) },
+    { path: "/stats",             ok: state.stats && Object.keys(state.stats).length > 0 },
+    { path: "/stats/summary",     ok: state.statsSummary && Object.keys(state.statsSummary).length > 0 },
+    { path: "/stats/timeline",    ok: Array.isArray(state.timeline) },
+    { path: "/events",            ok: Array.isArray(state.events) },
+    { path: "/sources",           ok: !!(state.sources?.sources) },
+    { path: "/config/rules",      ok: !!(state.rules && (Array.isArray(state.rules) ? state.rules.length >= 0 : state.rules.rules)) },
+    { path: "/filter/config",     ok: !!(state.filterConfig) },
+    { path: "/config/forwarding", ok: !!(state.forwarding) },
+    { path: "/forwarding/status", ok: !!(state.forwardingStatus) },
+    { path: "/queue/status",      ok: !!(state.queue) },
+  ];
+  return `<div class="api-health-grid">
+    ${checks.map((c) => `
+      <div class="api-health-item">
+        ${statusDot(c.ok)}
+        <code>${esc(c.path)}</code>
+        <span class="chip ${c.ok ? "chip-ok" : "chip-err"}">${c.ok ? "OK" : "no data"}</span>
+      </div>`).join("")}
+  </div>`;
+}
+
+/* ── Dashboard ─────────────────────────────────────────────── */
+function renderTimeline() {
+  const rows = state.timeline || [];
+  if (!rows.length) return emptyState("No timeline data yet.");
+  const max = Math.max(...rows.map((r) => Number(r.count) || 0), 1);
+  return `<div class="timeline">${rows.slice(-24).map((r) => `
+    <div class="timeline-col" title="${esc(r.timestamp)}: ${esc(r.count)}">
+      <span style="height:${Math.max(3, (Number(r.count) || 0) / max * 100)}%"></span>
+    </div>`).join("")}</div>`;
+}
+
+function renderHighValueFeed() {
+  const events = (state.events || []).map(normalizeEvent);
+  const highlights = events.filter((e) => {
+    const sev = String(e.severity || "").toLowerCase();
+    return sev === "critical" || sev === "error";
+  }).slice(0, 6);
+  const rows = highlights.length ? highlights : events.slice(0, 5);
+  if (!rows.length) return emptyState("No events loaded yet. Stream events will appear here.");
+  return `<table>
+    <thead><tr>
+      <th>Time</th><th>Severity</th><th>Source</th><th>Category</th><th>Decision</th><th>Message</th>
+    </tr></thead>
+    <tbody>${rows.map((e) => `
+      <tr class="row-${esc(String(e.severity || "").toLowerCase())}">
+        <td class="mono" style="white-space:nowrap;font-size:11px">${esc(e.received_display)}</td>
+        <td>${badge(e.severity)}</td>
+        <td>${esc(e.source_type)}<br><small class="muted">${esc(e.component)}</small></td>
+        <td>${esc(e.event_category)}</td>
+        <td>${decisionBadge(e.collector_decision)}</td>
+        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.message)}</td>
+      </tr>`).join("")}
+    </tbody>
+  </table>`;
 }
 
 function renderDashboard() {
   const ss = state.statsSummary || {};
   const st = state.stats || {};
   const q = state.queue || {};
-  const splunkState = ss.splunk_enabled ? "enabled" : "disabled";
+  const fwd = state.forwarding || {};
+  const fwdSt = state.forwardingStatus || {};
+  const totalEvents = ss.total_events || st.total_events || st.total_received || 0;
+  const eps = st.event_rate_per_second;
+  const fwdEnabled = fwd.splunk_enabled || fwd.syslog_forward_enabled;
+
   document.getElementById("tab-dashboard").innerHTML = `
     ${errorBlock("core")}
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>DMZ Collector Overview</h2>
+        <p>Security telemetry ingestion, normalization, and forwarding status</p>
+      </div>
+      <div class="page-header-right">
+        <span class="chip ${fwdEnabled ? "chip-cyan" : "chip-dim"}">
+          <span class="dot"></span>${fwdEnabled ? "Forwarding active" : "Forwarding off"}
+        </span>
+      </div>
+    </div>
+
+    <div class="section-head"><h3>Event Processing</h3></div>
     <div class="grid">
-      ${card("Total Events", ss.total_events || st.total_events || st.total_received || 0)}
-      ${card("Sources", ss.source_count || st.source_count || 0)}
-      ${card("Queued", q.queued || 0, q.paused ? "paused" : "active")}
-      ${card("Forwarded", q.forwarded || 0)}
-      ${card("Failed", q.failed || 0)}
-      ${card("Critical", ss.critical_count || 0)}
-      ${card("Warning", ss.warning_count || 0)}
-      ${card("Splunk HEC", splunkState, ss.splunk_last_error || ss.splunk_last_success_at || "")}
+      ${statCard("Total Events", safe(totalEvents, 0), eps !== undefined ? `${eps} ev/s` : "", "red")}
+      ${statCard("Forwarded", safe(q.forwarded || fwdSt.forwarded, 0), fwd.splunk_hec_url ? "to SIEM" : "–", "cyan")}
+      ${statCard("Queued", safe(q.queued, 0), q.paused ? "forwarding paused" : "active", "")}
+      ${statCard("Failed", safe(q.failed || fwdSt.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "–", q.failed ? "warn" : "")}
+      ${statCard("Critical", safe(ss.critical_count, 0), "events", "red")}
+      ${statCard("Warning", safe(ss.warning_count, 0), "events", "warn")}
+      ${statCard("Sources", safe(ss.source_count || st.source_count, 0), "registered", "info")}
+      ${statCard("Spool File", q.spool_file || fwd.spool_file || "–", q.queued ? `${q.queued} pending` : "empty", "purple")}
     </div>
+
     <div class="dashboard-grid">
-      <article class="card"><h3>Severity</h3>${objectEntriesBars(st.by_severity)}</article>
-      <article class="card"><h3>Categories</h3>${objectEntriesBars(st.by_category)}</article>
+      <article class="card"><h3>Severity Distribution</h3>${objectEntriesBars(st.by_severity)}</article>
+      <article class="card"><h3>Event Categories</h3>${objectEntriesBars(st.by_category)}</article>
       <article class="card"><h3>Source Types</h3>${objectEntriesBars(st.by_source_type)}</article>
-      <article class="card"><h3>Timeline</h3>${renderTimeline()}</article>
+      <article class="card"><h3>Event Timeline (24h)</h3>${renderTimeline()}</article>
     </div>
+
+    <div class="section-head" style="margin-top:20px"><h3>DMZ Pipeline</h3></div>
+    <article class="card">
+      ${miniPipeline([
+        { label: "OT Collector", cls: "n-ot" },
+        { label: "OPC UA Gateway", cls: "n-ot" },
+        { label: "GDS / PKI", cls: "n-ot" },
+        { label: "Firewall / Syslog", cls: "n-ot" },
+        { label: "DMZ Collector", cls: "n-dmz" },
+        { label: "Local Store", cls: "n-store" },
+        { label: "Splunk SIEM", cls: "n-siem" },
+      ])}
+      <p class="dim" style="font-size:11px;margin-top:8px">
+        Forwarding must never block local collection or event storage.
+      </p>
+    </article>
+
+    <div class="section-head" style="margin-top:20px"><h3>Recent High-Value Events</h3></div>
+    ${renderHighValueFeed()}
   `;
 }
 
-function renderTimeline() {
-  const rows = state.timeline || [];
-  if (!rows.length) return emptyState("No timeline buckets yet.");
-  const max = Math.max(...rows.map((r) => Number(r.count) || 0), 1);
-  return `<div class="timeline">${rows.slice(-24).map((r) => `
-    <div class="timeline-col" title="${esc(r.timestamp)}: ${esc(r.count)}">
-      <span style="height:${Math.max(4, (Number(r.count) || 0) / max * 100)}%"></span>
-    </div>
-  `).join("")}</div>`;
-}
-
+/* ── Events ────────────────────────────────────────────────── */
 function eventQueryParams() {
   const qs = new URLSearchParams({ limit: "300" });
   for (const key of ["source_type", "severity", "category", "asset", "search"]) {
@@ -250,7 +394,7 @@ function filteredEvents() {
 
 function sortHeader(label, field) {
   const active = state.eventSort.field === field;
-  const marker = active ? (state.eventSort.dir === "asc" ? " up" : " down") : "";
+  const marker = active ? (state.eventSort.dir === "asc" ? " &#8593;" : " &#8595;") : "";
   return `<button class="table-sort${active ? " active" : ""}" data-sort="${esc(field)}">${esc(label)}${marker}</button>`;
 }
 
@@ -262,70 +406,96 @@ function renderEvents() {
   const start = (state.eventPage - 1) * pageSize;
   const rows = allRows.slice(start, start + pageSize);
   const f = state.eventFilters;
+  const critCount = allRows.filter((e) => String(e.severity || "").toLowerCase() === "critical").length;
+
   document.getElementById("tab-events").innerHTML = `
     ${errorBlock("events")}
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>Event Console</h2>
+        <p>Live SOC event feed — ${allRows.length} visible, ${critCount > 0 ? `${critCount} critical` : "no critical"}</p>
+      </div>
+    </div>
+
     <div class="toolbar">
-      <input id="flt-source" placeholder="source_type" value="${esc(f.source_type)}" />
-      <select id="flt-severity">
-        <option value="">Any severity</option>
-        ${["info", "warning", "error", "critical"].map((s) => `<option value="${s}" ${f.severity === s ? "selected" : ""}>${s}</option>`).join("")}
-      </select>
-      <input id="flt-category" placeholder="category" value="${esc(f.category)}" />
-      <input id="flt-asset" placeholder="asset_ip/name" value="${esc(f.asset)}" />
-      <input id="flt-decision" placeholder="decision" value="${esc(f.decision)}" />
-      <input id="flt-search" placeholder="search message/raw/tags" value="${esc(f.search)}" />
+      <label>Source Type<input id="flt-source" placeholder="e.g. firewall" value="${esc(f.source_type)}" style="width:140px" /></label>
+      <label>Severity
+        <select id="flt-severity" style="width:120px">
+          <option value="">Any</option>
+          ${["info", "warning", "error", "critical"].map((s) =>
+            `<option value="${s}" ${f.severity === s ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+      </label>
+      <label>Category<input id="flt-category" placeholder="category" value="${esc(f.category)}" style="width:130px" /></label>
+      <label>Asset<input id="flt-asset" placeholder="IP or name" value="${esc(f.asset)}" style="width:130px" /></label>
+      <label>Decision<input id="flt-decision" placeholder="forward / drop…" value="${esc(f.decision)}" style="width:130px" /></label>
+      <label>Search<input id="flt-search" placeholder="message / raw / tags" value="${esc(f.search)}" style="width:180px" /></label>
       <button id="flt-apply" class="primary">Apply</button>
-      <button id="flt-clear">Clear</button>
-      <button id="events-refresh">Refresh</button>
+      <button id="flt-clear" class="secondary">Clear</button>
+      <button id="events-refresh">&#8635; Refresh</button>
     </div>
+
     <div class="stream-panel">
-      <span class="pill ${state.stream.connected ? "ok-pill" : "warn-pill"}">stream ${state.stream.connected ? "connected" : "offline"}</span>
-      <span class="pill">${state.stream.paused ? "paused" : "live"}</span>
-      <span class="muted">last event: ${esc(state.stream.lastEventAt || "-")}</span>
-      <button id="stream-toggle">${state.stream.paused ? "Resume stream" : "Pause stream"}</button>
-      <button id="stream-reconnect">Reconnect</button>
+      <span class="chip ${state.stream.connected ? "chip-ok" : "chip-warn"}">
+        <span class="dot"></span>stream ${state.stream.connected ? "connected" : "offline"}
+      </span>
+      <span class="chip ${state.stream.paused ? "chip-warn" : "chip-dim"}">
+        ${state.stream.paused ? "&#9646;&#9646; paused" : "&#9654; live"}
+      </span>
+      <span class="muted" style="font-size:11px">last: ${esc(state.stream.lastEventAt || "–")}</span>
+      <button id="stream-toggle" class="btn-sm">${state.stream.paused ? "Resume" : "Pause"}</button>
+      <button id="stream-reconnect" class="btn-sm secondary">Reconnect</button>
     </div>
-    <div class="table-meta">${allRows.length} matching events, page ${state.eventPage} of ${totalPages}</div>
+
+    <div class="table-meta">
+      <span>${allRows.length} matching &middot; page ${state.eventPage} of ${totalPages}</span>
+    </div>
+
     ${rows.length ? `
       <table>
-        <thead>
-          <tr>
-            <th>${sortHeader("Time", "received_at")}</th>
-            <th>${sortHeader("Source", "source_type")}</th>
-            <th>${sortHeader("Severity", "severity")}</th>
-            <th>${sortHeader("Category", "event_category")}</th>
-            <th>Asset</th><th>Decision</th><th>Routing</th><th>Message</th><th>Actions</th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>${sortHeader("Time", "received_at")}</th>
+          <th>${sortHeader("Source", "source_type")}</th>
+          <th>${sortHeader("Severity", "severity")}</th>
+          <th>${sortHeader("Category", "event_category")}</th>
+          <th>Asset / IP</th>
+          <th>Decision</th>
+          <th>Routing</th>
+          <th>Message</th>
+          <th></th>
+        </tr></thead>
         <tbody>
-          ${rows.map((e) => `
-            <tr>
-              <td>${esc(e.received_display)}</td>
-              <td>${esc(e.source_type)}<br><small>${esc(e.component)}</small></td>
+          ${rows.map((e) => {
+            const sev = String(e.severity || "").toLowerCase();
+            return `
+            <tr class="row-${esc(sev)}">
+              <td class="mono" style="font-size:11px;white-space:nowrap">${esc(e.received_display)}</td>
+              <td>${esc(e.source_type)}<br><small class="muted mono">${esc(e.component)}</small></td>
               <td>${badge(e.severity)}</td>
               <td>${esc(e.event_category)}</td>
-              <td>${esc(e.asset_name)}<br><small>${esc(e.asset_ip || e.source_ip)}</small></td>
-              <td>${esc(e.collector_decision || "-")}<br><small>${esc(e.matched_rule_id || "-")}</small></td>
-              <td>${esc(e.siem_index_hint || "-")}<br><small>${esc(e.splunk_sourcetype || "-")}</small></td>
-              <td>${esc(e.message)}</td>
-              <td><button data-id="${esc(e.id)}" class="show-json">JSON</button></td>
+              <td class="mono" style="font-size:11px">${esc(e.asset_name || e.asset_ip || e.source_ip || "–")}</td>
+              <td>${decisionBadge(e.collector_decision)}<br><small class="muted mono">${esc(e.matched_rule_id || "")}</small></td>
+              <td class="mono" style="font-size:11px">${esc(e.siem_index_hint || "–")}<br>${esc(e.splunk_sourcetype || "–")}</td>
+              <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.message)}</td>
+              <td><button data-id="${esc(e.id)}" class="show-json btn-sm">JSON</button></td>
             </tr>
             <tr class="details-row">
               <td colspan="9">
                 <details>
-                  <summary>raw/tags preview</summary>
+                  <summary class="muted" style="font-size:11px;cursor:pointer">raw / tags</summary>
                   <pre>${esc(JSON.stringify({ raw: e.raw_object, tags: e.tags }, null, 2))}</pre>
                 </details>
               </td>
-            </tr>
-          `).join("")}
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
       <div class="pager">
-        <button id="page-prev" ${state.eventPage <= 1 ? "disabled" : ""}>Previous</button>
-        <button id="page-next" ${state.eventPage >= totalPages ? "disabled" : ""}>Next</button>
+        <button id="page-prev" ${state.eventPage <= 1 ? "disabled" : ""}>&#8592; Prev</button>
+        <span class="muted" style="font-size:12px">${state.eventPage} / ${totalPages}</span>
+        <button id="page-next" ${state.eventPage >= totalPages ? "disabled" : ""}>Next &#8594;</button>
       </div>
-    ` : emptyState("No real events match the current filters.")}
+    ` : emptyState("No events match the current filters.")}
   `;
   bindEventsTab(allRows);
 }
@@ -380,19 +550,25 @@ function bindEventsTab(allRows) {
 
 function showJSON(row) {
   jsonModalBody.textContent = JSON.stringify(row, null, 2);
-  const existing = document.getElementById("copy-json");
-  if (existing) existing.remove();
-  const copy = document.createElement("button");
-  copy.id = "copy-json";
-  copy.textContent = "Copy JSON";
-  copy.addEventListener("click", async () => {
-    await navigator.clipboard?.writeText(jsonModalBody.textContent);
-    copy.textContent = "Copied";
-  });
-  jsonModal.appendChild(copy);
+  const footer = document.getElementById("json-modal-footer");
+  if (footer) {
+    const existing = footer.querySelector("#copy-json");
+    if (existing) existing.remove();
+    const copy = document.createElement("button");
+    copy.id = "copy-json";
+    copy.className = "primary";
+    copy.textContent = "Copy JSON";
+    copy.addEventListener("click", async () => {
+      await navigator.clipboard?.writeText(jsonModalBody.textContent);
+      copy.textContent = "✓ Copied";
+      setTimeout(() => { copy.textContent = "Copy JSON"; }, 2000);
+    });
+    footer.appendChild(copy);
+  }
   jsonModal.showModal();
 }
 
+/* ── Sources ───────────────────────────────────────────────── */
 function sourceGroups() {
   return ["Firewall", "PLCs", "SCADA / FUXA", "OPC UA", "GDS / PKI", "Engineering Workstation", "DMZ Services", "IDS / Future Monitoring", "Unknown / Other"];
 }
@@ -420,42 +596,49 @@ function matchesSourceFilter(source, filter) {
   return true;
 }
 
-function badgeList(counts = {}, clsPrefix = "sev") {
+function badgeList(counts, clsPrefix) {
+  const p = clsPrefix || "sev";
   const html = Object.entries(counts || {})
     .filter(([, v]) => v)
     .sort((a, b) => Number(b[1]) - Number(a[1]))
-    .map(([k, v]) => `<span class="badge ${clsPrefix}-${esc(k)}">${esc(k)}: ${esc(v)}</span>`)
+    .map(([k, v]) => `<span class="badge ${esc(p)}-${esc(k)}">${esc(k)}: ${esc(v)}</span>`)
     .join(" ");
   return html || `<span class="muted">none</span>`;
 }
 
 function sourceCard(source) {
+  const isEnabled = source.enabled;
+  const isForward = source.forward_enabled;
+  const isConfigured = source.configured;
   return `
     <article class="source-card">
       <div class="source-card-header">
         <div>
-          <div class="source-name">${esc(source.name || source.asset_name || source.id || source.source_key)}</div>
-          <div class="source-meta">${esc(source.group)} | ${esc(source.zone || "-")} | ${esc(source.impact || "-")} | ${esc(source.protocol || "-")}</div>
+          <div style="display:flex;align-items:center;gap:7px">
+            <span class="status-dot ${isEnabled ? "ok" : "off"}"></span>
+            <span class="source-name">${esc(source.name || source.asset_name || source.id || source.source_key)}</span>
+          </div>
+          <div class="source-meta">${esc(source.group)} &middot; ${esc(source.zone || "–")} &middot; ${esc(source.protocol || "–")}</div>
         </div>
         <div class="source-badges">
-          ${badge(source.enabled ? "enabled" : "disabled", source.enabled ? "sev" : "cat")}
-          ${badge(source.forward_enabled ? "forward" : "no-forward", source.forward_enabled ? "sev" : "cat")}
-          ${badge(source.configured ? "configured" : "discovered", source.configured ? "sev" : "cat")}
+          ${badge(isEnabled ? "enabled" : "disabled", isEnabled ? "sev" : "cat")}
+          ${badge(isForward ? "forward" : "no-forward", isForward ? "sev" : "cat")}
+          ${badge(isConfigured ? "configured" : "discovered", isConfigured ? "cat" : "cat")}
         </div>
       </div>
       <div class="source-body">
-        <div><span class="label">IP</span> ${esc(source.asset_ip)}</div>
-        <div><span class="label">Type</span> ${esc(source.source_type)}</div>
-        <div><span class="label">Last Seen</span> ${esc(source.last_seen)}</div>
-        <div><span class="label">Events</span> ${safe(source.event_count, 0)}</div>
-        <div><span class="label">Index</span> ${esc(source.siem_index_hint)}</div>
-        <div><span class="label">Sourcetype</span> ${esc(source.splunk_sourcetype)}</div>
+        <div><span class="label">IP</span> <span class="mono">${esc(source.asset_ip || "–")}</span></div>
+        <div><span class="label">Type</span> <span>${esc(source.source_type)}</span></div>
+        <div><span class="label">Last Seen</span> <span class="mono">${esc(source.last_seen || "–")}</span></div>
+        <div><span class="label">Events</span> <strong>${safe(source.event_count, 0)}</strong></div>
+        <div><span class="label">Index</span> <span class="mono">${esc(source.siem_index_hint || "–")}</span></div>
+        <div><span class="label">Impact</span> <span>${esc(source.impact || "–")}</span></div>
       </div>
       <div class="source-section"><div class="label">Severity</div><div class="badge-row">${badgeList(source.severity_counts)}</div></div>
       <div class="source-section"><div class="label">Categories</div><div class="badge-row">${badgeList(source.category_counts, "cat")}</div></div>
       <div class="source-actions">
-        <button class="source-detail" data-source-type="${esc(source.source_type)}" data-asset-ip="${esc(source.asset_ip)}">Detail</button>
-        <button disabled title="Source CRUD is not implemented by the backend in this version.">Edit</button>
+        <button class="source-detail btn-sm" data-source-type="${esc(source.source_type)}" data-asset-ip="${esc(source.asset_ip)}">Detail</button>
+        <button disabled class="btn-sm" title="Source CRUD is not implemented by the backend.">Edit</button>
       </div>
     </article>
   `;
@@ -471,37 +654,84 @@ function renderSources() {
   const sourceTypes = [...new Set(rows.map((s) => s.source_type).filter(Boolean))].sort();
   const severityKeys = [...new Set(rows.flatMap((s) => Object.keys(s.severity_counts || {})))].sort();
   const groups = sourceGroups();
+  const enabledCount = rows.filter((s) => s.enabled).length;
+
   document.getElementById("tab-sources").innerHTML = `
     ${errorBlock("sources")}
-    <div class="card source-summary-bar">
-      <div><span class="label">Visible</span> ${safe(snapshot.visible_sources, snapshot.total_sources || 0)}</div>
-      <div><span class="label">Hidden</span> ${safe(snapshot.hidden_sources, 0)}</div>
-      <div><span class="label">Configured</span> ${safe(snapshot.configured_sources_total, snapshot.configured_sources || 0)}</div>
-      <div><span class="label">Discovered</span> ${safe(snapshot.discovered_sources_visible, snapshot.discovered_sources || 0)}</div>
-      <div><span class="label">Generated</span> ${esc(snapshot.generated_at)}</div>
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>Source Registry</h2>
+        <p>DMZ asset and telemetry source inventory</p>
+      </div>
+      <div class="page-header-right">
+        <span class="chip chip-dim">&#128336; ${esc(snapshot.generated_at || "–")}</span>
+        <div class="notice readonly" style="margin:0">&#128274; Read-only — source CRUD not implemented</div>
+      </div>
     </div>
+
+    <div class="source-summary-bar">
+      ${statCard("Visible", safe(snapshot.visible_sources, snapshot.total_sources || 0), "sources", "")}
+      ${statCard("Enabled", enabledCount, "of visible", "ok")}
+      ${statCard("Configured", safe(snapshot.configured_sources_total, snapshot.configured_sources || 0), "registered", "info")}
+      ${statCard("Discovered", safe(snapshot.discovered_sources_visible, snapshot.discovered_sources || 0), "auto-detected", "purple")}
+      ${statCard("Hidden", safe(snapshot.hidden_sources, 0), "excluded from view", "")}
+    </div>
+
     <div class="toolbar source-toggles">
       <label><input id="src-toggle-internal" type="checkbox" ${vis.includeInternal ? "checked" : ""}> Show internal DMZ services</label>
       <label><input id="src-toggle-disabled" type="checkbox" ${vis.includeDisabled ? "checked" : ""}> Show disabled sources</label>
       <label><input id="src-toggle-direct-siem" type="checkbox" ${vis.includeDirectSIEM ? "checked" : ""}> Show direct-to-SIEM sources</label>
-      <button id="src-toggle-apply" class="primary">Refresh inventory</button>
+      <button id="src-toggle-apply" class="primary">&#8635; Refresh inventory</button>
     </div>
+
     <div class="toolbar source-filters">
-      <select id="src-filter-group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${filter.group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
-      <select id="src-filter-type"><option value="">All source types</option>${sourceTypes.map((t) => `<option value="${esc(t)}" ${filter.sourceType === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
-      <select id="src-filter-zone"><option value="">All zones</option>${zones.map((z) => `<option value="${esc(z)}" ${filter.zone === z ? "selected" : ""}>${esc(z)}</option>`).join("")}</select>
-      <select id="src-filter-severity"><option value="">Any severity</option>${severityKeys.map((s) => `<option value="${esc(s)}" ${filter.severity === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
-      <select id="src-filter-enabled"><option value="">Enabled or disabled</option><option value="true" ${filter.enabled === "true" ? "selected" : ""}>Enabled</option><option value="false" ${filter.enabled === "false" ? "selected" : ""}>Disabled</option></select>
-      <select id="src-filter-configured"><option value="">Configured or discovered</option><option value="configured" ${filter.configured === "configured" ? "selected" : ""}>Configured</option><option value="discovered" ${filter.configured === "discovered" ? "selected" : ""}>Discovered</option></select>
-      <input id="src-filter-search" placeholder="search by IP, name, id" value="${esc(filter.search)}" />
+      <label>Group
+        <select id="src-filter-group" style="width:140px">
+          <option value="">All groups</option>
+          ${groups.map((g) => `<option value="${esc(g)}" ${filter.group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Source Type
+        <select id="src-filter-type" style="width:130px">
+          <option value="">All types</option>
+          ${sourceTypes.map((t) => `<option value="${esc(t)}" ${filter.sourceType === t ? "selected" : ""}>${esc(t)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Zone
+        <select id="src-filter-zone" style="width:100px">
+          <option value="">All zones</option>
+          ${zones.map((z) => `<option value="${esc(z)}" ${filter.zone === z ? "selected" : ""}>${esc(z)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Severity
+        <select id="src-filter-severity" style="width:100px">
+          <option value="">Any</option>
+          ${severityKeys.map((s) => `<option value="${esc(s)}" ${filter.severity === s ? "selected" : ""}>${esc(s)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Status
+        <select id="src-filter-enabled" style="width:120px">
+          <option value="">Enabled or disabled</option>
+          <option value="true" ${filter.enabled === "true" ? "selected" : ""}>Enabled only</option>
+          <option value="false" ${filter.enabled === "false" ? "selected" : ""}>Disabled only</option>
+        </select>
+      </label>
+      <label>Search<input id="src-filter-search" placeholder="IP, name, ID" value="${esc(filter.search)}" style="width:150px" /></label>
       <button id="src-filter-apply" class="primary">Apply</button>
-      <button id="src-filter-clear">Clear</button>
+      <button id="src-filter-clear" class="secondary">Clear</button>
     </div>
+
     ${filtered.length ? `<div class="source-groups">
       ${groups.map((group) => {
         const items = filtered.filter((s) => s.group === group);
         if (!items.length) return "";
-        return `<section class="source-group"><div class="source-group-head"><h3>${esc(group)}</h3><span class="badge sev-info">${items.length} sources</span></div><div class="source-grid">${items.map(sourceCard).join("")}</div></section>`;
+        return `<section class="source-group">
+          <div class="source-group-head">
+            <h3>${esc(group)}</h3>
+            <span class="chip chip-info">${items.length} sources</span>
+          </div>
+          <div class="source-grid">${items.map(sourceCard).join("")}</div>
+        </section>`;
       }).join("")}
     </div>` : emptyState("No sources match the current view.")}
   `;
@@ -525,7 +755,7 @@ function bindSourcesTab() {
       zone: document.getElementById("src-filter-zone").value,
       severity: document.getElementById("src-filter-severity").value,
       enabled: document.getElementById("src-filter-enabled").value,
-      configured: document.getElementById("src-filter-configured").value,
+      configured: "",
       search: document.getElementById("src-filter-search").value.trim(),
     };
     renderSources();
@@ -546,23 +776,51 @@ function bindSourcesTab() {
   });
 }
 
+/* ── Queue ─────────────────────────────────────────────────── */
 function renderQueue() {
   const q = state.queue || {};
   document.getElementById("tab-queue").innerHTML = `
     ${errorBlock("queue")}${noticeBlock("queue")}
-    <div class="grid">
-      ${card("Queued", q.queued || 0, q.paused ? "forwarding paused" : "worker active")}
-      ${card("Forwarded", q.forwarded || 0)}
-      ${card("Failed", q.failed || 0)}
-      ${card("Last Success", fmtTime(q.last_success))}
-      ${card("Last Failure", fmtTime(q.last_failure))}
-      ${card("Spool File", q.spool_file || "-")}
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>Forwarding Queue</h2>
+        <p>Spool management and forwarding worker control</p>
+      </div>
+      <div class="page-header-right">
+        <span class="chip ${q.paused ? "chip-warn" : "chip-ok"}">
+          <span class="dot"></span>${q.paused ? "worker paused" : "worker active"}
+        </span>
+      </div>
     </div>
-    <div class="toolbar actionbar">
-      <button id="btn-flush" class="primary">Flush spool</button>
+
+    <div class="grid">
+      ${statCard("Queued", safe(q.queued, 0), q.paused ? "forwarding paused" : "pending dispatch", "")}
+      ${statCard("Forwarded", safe(q.forwarded, 0), "total", "cyan")}
+      ${statCard("Failed", safe(q.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "–", q.failed ? "warn" : "")}
+      ${statCard("Last Success", "–", fmtTime(q.last_success), "ok")}
+    </div>
+
+    <div class="section-head" style="margin-top:16px"><h3>Spool</h3></div>
+    <article class="card">
+      <div class="info-row">
+        <span class="info-key">Spool file</span>
+        <span class="info-val mono">${esc(q.spool_file || "–")}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">Last failure</span>
+        <span class="info-val">${esc(fmtTime(q.last_failure) || "–")}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">Last success</span>
+        <span class="info-val">${esc(fmtTime(q.last_success) || "–")}</span>
+      </div>
+    </article>
+
+    <div class="toolbar actionbar" style="margin-top:14px">
+      <button id="btn-flush" class="primary">&#8679; Flush spool</button>
       <button id="btn-pause">${q.paused ? "Already paused" : "Pause forwarding"}</button>
       <button id="btn-resume">${q.paused ? "Resume forwarding" : "Already active"}</button>
-      <button disabled title="Per-item retry is not implemented; use Flush spool to requeue pending records.">Retry failed item</button>
+      <button disabled title="Per-item retry is not implemented; use Flush spool to requeue pending records.">Retry failed</button>
     </div>
   `;
   document.getElementById("btn-flush").addEventListener("click", async () => {
@@ -582,37 +840,84 @@ async function setPaused(paused) {
   renderQueue();
 }
 
+/* ── Forwarding ────────────────────────────────────────────── */
 function renderForwarding() {
   const cfg = state.forwarding || {};
   const st = state.forwardingStatus || {};
-  const tokenPlaceholder = cfg.splunk_hec_token_set ? "********" : "";
+  const tokenPlaceholder = cfg.splunk_hec_token_set ? "••••••••" : "";
+  const splunkOk = cfg.splunk_enabled && cfg.splunk_hec_url;
+  const syslogOk = cfg.syslog_forward_enabled && cfg.syslog_forward_host;
+
   document.getElementById("tab-forwarding").innerHTML = `
     ${errorBlock("forwarding")}${noticeBlock("forwarding")}
-    <div class="card">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>SIEM Forwarding</h2>
+        <p>Splunk HEC and syslog uplink configuration</p>
+      </div>
+      <div class="page-header-right">
+        <span class="chip ${splunkOk ? "chip-cyan" : "chip-dim"}"><span class="dot"></span>Splunk ${splunkOk ? "on" : "off"}</span>
+        <span class="chip ${syslogOk ? "chip-ok" : "chip-dim"}"><span class="dot"></span>Syslog ${syslogOk ? "on" : "off"}</span>
+      </div>
+    </div>
+
+    <div class="conn-card">
+      <div class="conn-card-header">
+        ${statusDot(splunkOk)}
+        <span class="conn-status-text">${splunkOk ? "Splunk HEC Connected" : "Splunk HEC Not Configured"}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:13px">
+        <div class="info-row"><span class="info-key">URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "–")}</span></div>
+        <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "–")}</span></div>
+        <div class="info-row"><span class="info-key">Source</span><span class="info-val mono">${esc(cfg.splunk_source || "–")}</span></div>
+        <div class="info-row"><span class="info-key">Token</span><span class="info-val">${cfg.splunk_hec_token_set ? "&#11044; set" : "not set"}</span></div>
+        <div class="info-row"><span class="info-key">TLS Verify</span><span class="info-val">${cfg.splunk_verify_tls ? "yes" : "no"}</span></div>
+        <div class="info-row"><span class="info-key">Last response</span><span class="info-val mono">${esc(st.last_response || "–")}</span></div>
+      </div>
+    </div>
+
+    <div class="section-head"><h3>Splunk HEC Settings</h3></div>
+    <article class="card">
       <div class="toolbar">
         <label>Splunk Enabled<input id="splunk-enabled" type="checkbox" ${cfg.splunk_enabled ? "checked" : ""}></label>
-        <label>HEC URL<input id="splunk-url" value="${esc(cfg.splunk_hec_url || "")}"></label>
-        <label>HEC Token<input id="splunk-token" type="password" value="" placeholder="${tokenPlaceholder || "not set"}"></label>
-        <label>Index<input id="splunk-index" value="${esc(cfg.splunk_index || "ot_security")}"></label>
-        <label>Source<input id="splunk-source" value="${esc(cfg.splunk_source || "labshock_dmz_collector")}"></label>
+        <label>HEC URL<input id="splunk-url" value="${esc(cfg.splunk_hec_url || "")}" style="width:260px"></label>
+        <label>HEC Token (leave blank to keep current)<input id="splunk-token" type="password" value="" placeholder="${tokenPlaceholder || "not set"}" style="width:180px"></label>
+        <label>Index<input id="splunk-index" value="${esc(cfg.splunk_index || "ot_security")}" style="width:130px"></label>
+        <label>Source<input id="splunk-source" value="${esc(cfg.splunk_source || "labshock_dmz_collector")}" style="width:160px"></label>
         <label>Verify TLS<input id="splunk-verify-tls" type="checkbox" ${cfg.splunk_verify_tls ? "checked" : ""}></label>
       </div>
+    </article>
+
+    <div class="section-head"><h3>Syslog Forward Settings</h3></div>
+    <article class="card">
       <div class="toolbar">
         <label>Syslog Enabled<input id="syslog-enabled" type="checkbox" ${cfg.syslog_forward_enabled ? "checked" : ""}></label>
-        <label>Host<input id="syslog-host" value="${esc(cfg.syslog_forward_host || "")}"></label>
-        <label>Port<input id="syslog-port" type="number" min="1" max="65535" value="${esc(cfg.syslog_forward_port || 514)}"></label>
-        <label>Protocol<select id="syslog-proto"><option value="udp" ${cfg.syslog_forward_protocol === "udp" ? "selected" : ""}>udp</option><option value="tcp" ${cfg.syslog_forward_protocol === "tcp" ? "selected" : ""}>tcp</option></select></label>
+        <label>Host<input id="syslog-host" value="${esc(cfg.syslog_forward_host || "")}" style="width:180px"></label>
+        <label>Port<input id="syslog-port" type="number" min="1" max="65535" value="${esc(cfg.syslog_forward_port || 514)}" style="width:80px"></label>
+        <label>Protocol
+          <select id="syslog-proto" style="width:80px">
+            <option value="udp" ${cfg.syslog_forward_protocol === "udp" ? "selected" : ""}>udp</option>
+            <option value="tcp" ${cfg.syslog_forward_protocol === "tcp" ? "selected" : ""}>tcp</option>
+          </select>
+        </label>
       </div>
-      <div class="toolbar actionbar">
-        <button id="save-forwarding" class="primary">Save</button>
-        <button id="test-forwarding">Test forwarding</button>
-      </div>
-      <div class="status-grid">
-        <div><span class="label">Queued</span> ${safe(st.queued, 0)}</div>
-        <div><span class="label">Forwarded</span> ${safe(st.forwarded, 0)}</div>
-        <div><span class="label">Failed</span> ${safe(st.failed, 0)}</div>
-        <div><span class="label">Last response</span> ${esc(st.last_response || "-")}</div>
-      </div>
+    </article>
+
+    <div class="toolbar actionbar" style="margin-top:12px">
+      <button id="save-forwarding" class="primary">&#10003; Save configuration</button>
+      <button id="test-forwarding">&#9654; Test forwarding</button>
+    </div>
+
+    <div class="section-head"><h3>Forwarding Metrics</h3></div>
+    <div class="metric-grid">
+      ${statCard("Forwarded", safe(st.forwarded, 0), "total", "cyan")}
+      ${statCard("Failed", safe(st.failed, 0), "–", st.failed ? "warn" : "")}
+      ${statCard("Queued", safe(st.queued, 0), "pending", "")}
+      ${statCard("Last Response", safe(st.last_response || "–", "–"), "HTTP status", "")}
+    </div>
+
+    <div class="notice info" style="margin-top:16px">
+      &#9432; Forwarding must never block local collection or event storage. If the SIEM is unreachable, events queue locally.
     </div>
   `;
   document.getElementById("save-forwarding").addEventListener("click", saveForwarding);
@@ -642,63 +947,182 @@ async function saveForwarding() {
   renderForwarding();
 }
 
+/* ── Rules ─────────────────────────────────────────────────── */
 function renderRules() {
-  const rules = Array.isArray(state.rules) ? state.rules : (state.rules.rules || []);
+  const rules = Array.isArray(state.rules) ? state.rules : (state.rules?.rules || []);
   const filters = state.filterConfig?.filters || [];
+  const enabledRules = rules.filter((r) => r.enabled !== false).length;
+  const byAction = {};
+  rules.forEach((r) => {
+    const a = String(r.action || "unknown").toLowerCase();
+    byAction[a] = (byAction[a] || 0) + 1;
+  });
+
+  const ruleKeys = rules.length ? Object.keys(rules[0]) : [];
+
+  function renderRuleCell(r, k) {
+    const v = r[k];
+    if (k === "action") return `<td>${decisionBadge(v)}</td>`;
+    if (k === "enabled") return `<td>${badge(v !== false ? "enabled" : "disabled", v !== false ? "sev" : "cat")}</td>`;
+    if (k === "priority") return `<td><strong>${esc(v)}</strong></td>`;
+    if (typeof v === "object" && v !== null) return `<td class="mono" style="font-size:11px;color:var(--text-muted)">${esc(JSON.stringify(v))}</td>`;
+    if (v === true || v === false) return `<td class="muted">${v ? "yes" : "no"}</td>`;
+    return `<td>${esc(v)}</td>`;
+  }
+
   document.getElementById("tab-rules").innerHTML = `
     ${errorBlock("rules")}
-    <div class="notice">Rules and filters are read-only in the current backend. Add/edit/delete controls are disabled until CRUD endpoints exist.</div>
-    <div class="toolbar actionbar"><button disabled title="No source rule-create endpoint is implemented.">Add rule</button><button disabled title="No rule update endpoint is implemented.">Edit selected</button><button disabled title="No rule delete endpoint is implemented.">Delete selected</button></div>
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>Rule Matrix</h2>
+        <p>Collector filter and decision policy</p>
+      </div>
+      <div class="page-header-right">
+        <div class="notice readonly" style="margin:0">&#128274; Read-only — rule CRUD not implemented</div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-bottom:16px">
+      ${statCard("Total Rules", rules.length, "", "")}
+      ${statCard("Enabled", enabledRules, `of ${rules.length}`, "ok")}
+      ${statCard("DROP", byAction.drop || 0, "rules", "red")}
+      ${statCard("FORWARD", byAction.forward || 0, "rules", "cyan")}
+      ${statCard("SAMPLE", byAction.sample || 0, "rules", "warn")}
+      ${statCard("STORE", byAction.store || 0, "rules", "purple")}
+    </div>
+
+    <div class="toolbar actionbar">
+      <button disabled title="No rule-create endpoint is implemented.">+ Add rule</button>
+      <button disabled title="No rule update endpoint is implemented.">Edit</button>
+      <button disabled title="No rule delete endpoint is implemented.">Delete</button>
+    </div>
+
+    <div class="section-head"><h3>Configured Rules</h3></div>
     <article class="card">
-      <h3>Rule Matrix</h3>
-      ${rules.length ? `<table><thead><tr>${Object.keys(rules[0]).map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${rules.map((r) => `<tr>${Object.keys(rules[0]).map((k) => `<td>${esc(typeof r[k] === "object" ? JSON.stringify(r[k]) : r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>` : emptyState("No configured rules returned by /config/rules.")}
+      ${rules.length ? `<table>
+        <thead><tr>${ruleKeys.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead>
+        <tbody>${rules.map((r) => `<tr>${ruleKeys.map((k) => renderRuleCell(r, k)).join("")}</tr>`).join("")}</tbody>
+      </table>` : emptyState("No configured rules returned by /config/rules.")}
     </article>
-    <article class="card"><h3>Filter Config</h3>${filters.length ? `<pre>${esc(JSON.stringify(filters, null, 2))}</pre>` : emptyState("No filter config returned by /filter/config.")}</article>
+
+    <div class="section-head"><h3>Filter Config</h3></div>
+    <article class="card">
+      ${filters.length ? `<pre>${esc(JSON.stringify(filters, null, 2))}</pre>` : emptyState("No filter config returned by /filter/config.")}
+    </article>
   `;
 }
 
+/* ── SIEM / Routing ────────────────────────────────────────── */
 function renderSplunk() {
   const st = state.forwardingStatus || {};
+  const cfg = state.forwarding || {};
+  const q = state.queue || {};
+
   document.getElementById("tab-splunk").innerHTML = `
-    <div class="grid">
-      <article class="card"><h3>Sourcetype Mapping</h3>${objectEntriesBars({
-        "labshock:net:firewall": 1,
-        "labshock:ot:plc": 1,
-        "labshock:ot:scada": 1,
-        "labshock:ot:opcua": 1,
-        "labshock:ot:ews": 1,
-        "labshock:dmz:gds": 1,
-        "labshock:dmz:opcua_gateway": 1,
-        "labshock:dmz:jumphost": 1,
-      })}</article>
-      <article class="card"><h3>HEC Runtime</h3><p>Last response: <strong>${esc(st.last_response || "-")}</strong></p><p>Forwarded: <strong>${esc(st.forwarded || 0)}</strong></p><p>Failed: <strong>${esc(st.failed || 0)}</strong></p></article>
-      <article class="card"><h3>Splunk Queries</h3><pre>index=ot_security zone="DMZ" source_type=*
-| stats count by source_type sourcetype severity event_category</pre></article>
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>SIEM / Routing Reference</h2>
+        <p>Splunk HEC uplink status and query reference</p>
+      </div>
     </div>
+
+    <div class="section-head"><h3>HEC Runtime Status</h3></div>
+    <div class="grid">
+      ${statCard("Forwarded", safe(st.forwarded, 0), "total events sent", "cyan")}
+      ${statCard("Failed", safe(st.failed, 0), "forwarding errors", st.failed ? "warn" : "")}
+      ${statCard("Queued", safe(q.queued, 0), "pending in spool", "")}
+      ${statCard("Last Response", safe(st.last_response || "–", "–"), "HTTP status from SIEM", "")}
+    </div>
+
+    <div class="section-head"><h3>Routing Configuration</h3></div>
+    <article class="card">
+      <div class="info-row"><span class="info-key">HEC URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "–")}</span></div>
+      <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "–")}</span></div>
+      <div class="info-row"><span class="info-key">Source tag</span><span class="info-val mono">${esc(cfg.splunk_source || "–")}</span></div>
+      <div class="info-row"><span class="info-key">HEC Token</span><span class="info-val">${cfg.splunk_hec_token_set ? "&#11044; configured (masked)" : "&#9675; not set"}</span></div>
+      <div class="info-row"><span class="info-key">TLS Verify</span><span class="info-val">${cfg.splunk_verify_tls ? "yes" : "no"}</span></div>
+      <div class="info-row"><span class="info-key">Forwarding enabled</span><span class="info-val">${cfg.splunk_enabled ? "yes" : "no"}</span></div>
+      <div class="info-row"><span class="info-key">Syslog forward</span><span class="info-val">${cfg.syslog_forward_enabled ? `${esc(cfg.syslog_forward_host)}:${esc(cfg.syslog_forward_port)} (${esc(cfg.syslog_forward_protocol)})` : "disabled"}</span></div>
+    </article>
+
+    <div class="section-head"><h3>Reference SPL Queries</h3></div>
+    <article class="card">
+      <p class="muted" style="font-size:12px;margin-bottom:10px">Reference queries for the DMZ Collector's default index and sourcetype scheme.</p>
+      <pre>index=ot_security zone="DMZ" source_type=*
+| stats count by source_type sourcetype severity event_category
+
+index=ot_security severity=critical OR severity=error
+| table _time source_type event_category message asset_ip
+
+index=ot_security collector_decision=forward
+| timechart span=1h count by source_type</pre>
+    </article>
+
+    <div class="section-head"><h3>DMZ → SIEM Pipeline</h3></div>
+    <article class="card">
+      ${miniPipeline([
+        { label: "OT Collector", cls: "n-ot" },
+        { label: "DMZ Collector", cls: "n-dmz" },
+        { label: "Spool / Queue", cls: "n-store" },
+        { label: "Splunk SIEM", cls: "n-siem" },
+      ])}
+    </article>
   `;
 }
 
+/* ── Settings / Diagnostics ────────────────────────────────── */
 function renderSettings() {
   const h = state.health || {};
+  const st = state.stats || {};
+  const ss = state.statsSummary || {};
+
   document.getElementById("tab-settings").innerHTML = `
-    <div class="grid">
-      ${card("Service", h.service || "dmz_collector", h.status || "-")}
-      ${card("API", h.api_addr || "-", `base ${API_BASE || "same-origin"}`)}
-      ${card("Storage", h.storage_backend || "-", h.events_file || "")}
-      ${card("Spool", h.spool_file || "-")}
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>Diagnostics</h2>
+        <p>System information, storage, and API health</p>
+      </div>
     </div>
+
+    <div class="section-head"><h3>System Information</h3></div>
     <article class="card">
-      <h3>Operational Notes</h3>
-      <ul>
-        <li>Events are append-only; delete/archive is unavailable in this backend.</li>
-        <li>Source and rule CRUD are unavailable; the UI shows read-only inventory and rule data.</li>
-        <li>Demo data is not used. Empty panels mean the live API returned no data.</li>
-        <li>Set <code>window.DMZ_COLLECTOR_API_BASE</code> or localStorage <code>dmz_api_base</code> only if serving the UI separately from the API.</li>
+      <div class="info-row"><span class="info-key">Service</span><span class="info-val">${esc(h.service || "dmz_collector")}</span></div>
+      <div class="info-row"><span class="info-key">Status</span><span class="info-val">${badge(h.status || "unknown")}</span></div>
+      <div class="info-row"><span class="info-key">Zone</span><span class="info-val"><span class="badge zone-dmz">DMZ</span></span></div>
+      <div class="info-row"><span class="info-key">API address</span><span class="info-val mono">${esc(h.api_addr || "same-origin")}</span></div>
+      <div class="info-row"><span class="info-key">API base override</span><span class="info-val mono">${esc(API_BASE || "(none)")}</span></div>
+    </article>
+
+    <div class="section-head"><h3>Storage</h3></div>
+    <article class="card">
+      <div class="info-row"><span class="info-key">Backend</span><span class="info-val mono">${esc(h.storage_backend || "–")}</span></div>
+      <div class="info-row"><span class="info-key">Events file</span><span class="info-val mono">${esc(h.events_file || "–")}</span></div>
+      <div class="info-row"><span class="info-key">Spool file</span><span class="info-val mono">${esc(h.spool_file || "–")}</span></div>
+      <div class="info-row"><span class="info-key">Total events</span><span class="info-val">${safe(st.total_events || ss.total_events, 0)}</span></div>
+    </article>
+
+    <div class="section-head"><h3>API Health</h3></div>
+    <article class="card">
+      <p class="muted" style="font-size:12px;margin-bottom:10px">
+        Based on last successful data load. Green = data received. Red = no data or load error.
+      </p>
+      ${renderApiHealthGrid()}
+    </article>
+
+    <div class="section-head"><h3>Operational Notes</h3></div>
+    <article class="card">
+      <ul style="padding-left:18px;font-size:13px;line-height:2;color:var(--text-muted)">
+        <li>Events are append-only. Delete and archive are unavailable in this backend.</li>
+        <li>Source and rule CRUD are not implemented. The UI shows read-only inventory and rule data.</li>
+        <li>Demo data is never used. Empty panels mean the live API returned no data.</li>
+        <li>The Splunk HEC token is never returned to the browser. Only <code>splunk_hec_token_set</code> (boolean) is exposed.</li>
+        <li>Set <code>window.DMZ_COLLECTOR_API_BASE</code> or localStorage key <code>dmz_api_base</code> only if serving the UI from a different origin than the API.</li>
       </ul>
     </article>
   `;
 }
 
+/* ── Action helper ─────────────────────────────────────────── */
 async function action(key, fn, success) {
   try {
     setError(key, null);
@@ -713,6 +1137,7 @@ async function action(key, fn, success) {
   }
 }
 
+/* ── Data loaders (API contract unchanged) ─────────────────── */
 async function loadEvents() {
   try {
     state.events = await api(`/events?${eventQueryParams().toString()}`);
@@ -748,13 +1173,13 @@ async function loadRules() {
 
 async function loadCore() {
   const loaders = {
-    health: () => api("/health"),
-    stats: () => api("/stats"),
-    statsSummary: () => api("/stats/summary"),
-    queue: () => api("/queue/status"),
-    forwarding: () => api("/config/forwarding"),
-    forwardingStatus: () => api("/forwarding/status"),
-    timeline: () => api("/stats/timeline"),
+    health:          () => api("/health"),
+    stats:           () => api("/stats"),
+    statsSummary:    () => api("/stats/summary"),
+    queue:           () => api("/queue/status"),
+    forwarding:      () => api("/config/forwarding"),
+    forwardingStatus:() => api("/forwarding/status"),
+    timeline:        () => api("/stats/timeline"),
   };
   const results = await Promise.allSettled(Object.entries(loaders).map(async ([key, fn]) => [key, await fn()]));
   const failures = [];
@@ -767,11 +1192,23 @@ async function loadCore() {
     }
   }
   setError("core", failures.length ? new Error(failures.join(" | ")) : null);
+
   const status = state.health?.status || (failures.length ? "degraded" : "ok");
-  document.getElementById("health-pill").textContent = status;
-  document.getElementById("health-pill").className = `pill ${status === "ok" ? "ok-pill" : "warn-pill"}`;
+  const healthEl = document.getElementById("health-pill");
+  healthEl.textContent = `● ${status}`;
+  healthEl.className = `chip ${status === "ok" ? "chip-ok" : "chip-warn"}`;
+
   const eps = state.stats?.event_rate_per_second;
-  document.getElementById("rate-pill").textContent = eps !== undefined ? `${eps} ev/s` : `${state.statsSummary?.total_events || 0} total`;
+  const rateEl = document.getElementById("rate-pill");
+  rateEl.textContent = eps !== undefined ? `${eps} ev/s` : `${state.statsSummary?.total_events || 0} total`;
+  rateEl.className = "chip chip-dim";
+
+  const fwdEl = document.getElementById("fwd-pill");
+  if (fwdEl) {
+    const fwdEnabled = state.forwarding?.splunk_enabled || state.forwarding?.syslog_forward_enabled;
+    fwdEl.textContent = `→ ${fwdEnabled ? "fwd on" : "fwd off"}`;
+    fwdEl.className = `chip ${fwdEnabled ? "chip-cyan" : "chip-dim"}`;
+  }
 }
 
 async function refresh({ includeEvents = false } = {}) {
@@ -793,35 +1230,19 @@ function renderAll() {
 
 function renderActiveTab() {
   switch (state.activeTab) {
-    case "dashboard":
-      renderDashboard();
-      break;
-    case "events":
-      renderEvents();
-      break;
-    case "sources":
-      renderSources();
-      break;
-    case "queue":
-      renderQueue();
-      break;
-    case "forwarding":
-      renderForwarding();
-      break;
-    case "rules":
-      renderRules();
-      break;
-    case "splunk":
-      renderSplunk();
-      break;
-    case "settings":
-      renderSettings();
-      break;
-    default:
-      renderDashboard();
+    case "dashboard":  renderDashboard();  break;
+    case "events":     renderEvents();     break;
+    case "sources":    renderSources();    break;
+    case "queue":      renderQueue();      break;
+    case "forwarding": renderForwarding(); break;
+    case "rules":      renderRules();      break;
+    case "splunk":     renderSplunk();     break;
+    case "settings":   renderSettings();   break;
+    default:           renderDashboard();
   }
 }
 
+/* ── SSE stream (unchanged) ────────────────────────────────── */
 function connectStream() {
   if (!window.EventSource) {
     state.stream.connected = false;
@@ -845,18 +1266,21 @@ function connectStream() {
         state.events = [ev, ...state.events].slice(0, MAX_LIVE_EVENTS);
       }
       state.stream.lastEventAt = new Date().toISOString();
-      renderEvents();
+      if (state.activeTab === "events") renderEvents();
+      else if (state.activeTab === "dashboard") renderDashboard();
     } catch (err) {
       setError("events", err);
     }
   });
   source.onerror = () => {
     state.stream.connected = false;
-    renderEvents();
+    if (state.activeTab === "events") renderEvents();
   };
 }
 
+/* ── Init ──────────────────────────────────────────────────── */
 async function init() {
+  initTheme();
   renderAll();
   await refresh({ includeEvents: true });
   connectStream();

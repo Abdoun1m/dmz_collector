@@ -7,43 +7,93 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+
   <header class="topbar">
-    <div>
-      <h1>DataProtect DMZ Collector</h1>
-      <small>LabShock DMZ Security Telemetry</small>
+    <div class="topbar-brand">
+      <div class="brand-logo">DP</div>
+      <div class="brand-text">
+        <h1>DataProtect DMZ Collector</h1>
+        <p>DMZ Security Telemetry Hub</p>
+      </div>
     </div>
-    <div class="health">
-      <span id="health-pill" class="pill">offline</span>
-      <span id="rate-pill" class="pill">0 ev/s</span>
+    <div class="topbar-sep"></div>
+    <div class="topbar-chips">
+      <span class="chip chip-cyan"><span class="dot"></span>DMZ Zone</span>
+      <span id="health-pill" class="chip">&#9679; offline</span>
+      <span id="rate-pill" class="chip chip-dim">0 ev/s</span>
+      <span id="fwd-pill" class="chip chip-dim">fwd –</span>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode">&#9790;</button>
     </div>
   </header>
 
-  <nav class="tabs">
-    <button data-tab="dashboard" class="active">Dashboard</button>
-    <button data-tab="events">Events</button>
-    <button data-tab="sources">Sources</button>
-    <button data-tab="queue">Queue</button>
-    <button data-tab="forwarding">Forwarding</button>
-    <button data-tab="rules">Rules</button>
-    <button data-tab="splunk">Splunk</button>
-    <button data-tab="settings">Settings</button>
-  </nav>
+  <div class="app-shell">
 
-  <main>
-    <section id="tab-dashboard" class="tab active"></section>
-    <section id="tab-events" class="tab"></section>
-    <section id="tab-sources" class="tab"></section>
-    <section id="tab-queue" class="tab"></section>
-    <section id="tab-forwarding" class="tab"></section>
-    <section id="tab-rules" class="tab"></section>
-    <section id="tab-splunk" class="tab"></section>
-    <section id="tab-settings" class="tab"></section>
-  </main>
+    <aside class="sidebar">
+      <div class="sidebar-section-label">Navigation</div>
+      <nav class="tabs">
+        <button data-tab="dashboard" class="active">
+          <span class="nav-icon">&#9671;</span>
+          <span class="nav-label">Dashboard</span>
+        </button>
+        <button data-tab="events">
+          <span class="nav-icon">&#9783;</span>
+          <span class="nav-label">Events</span>
+        </button>
+        <button data-tab="sources">
+          <span class="nav-icon">&#9673;</span>
+          <span class="nav-label">Sources</span>
+        </button>
+        <button data-tab="queue">
+          <span class="nav-icon">&#8679;</span>
+          <span class="nav-label">Queue</span>
+        </button>
+        <button data-tab="forwarding">
+          <span class="nav-icon">&#8658;</span>
+          <span class="nav-label">Forwarding</span>
+        </button>
+        <button data-tab="rules">
+          <span class="nav-icon">&#9883;</span>
+          <span class="nav-label">Rule Matrix</span>
+        </button>
+        <button data-tab="splunk">
+          <span class="nav-icon">&#9670;</span>
+          <span class="nav-label">SIEM / Routing</span>
+        </button>
+        <button data-tab="settings">
+          <span class="nav-icon">&#9965;</span>
+          <span class="nav-label">Diagnostics</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-item">
+          <span>&#9632;</span>
+          <span>DataProtect v2</span>
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <section id="tab-dashboard"  class="tab active"></section>
+      <section id="tab-events"     class="tab"></section>
+      <section id="tab-sources"    class="tab"></section>
+      <section id="tab-queue"      class="tab"></section>
+      <section id="tab-forwarding" class="tab"></section>
+      <section id="tab-rules"      class="tab"></section>
+      <section id="tab-splunk"     class="tab"></section>
+      <section id="tab-settings"   class="tab"></section>
+    </main>
+
+  </div><!-- /.app-shell -->
 
   <dialog id="json-modal">
-    <h3>Event JSON</h3>
-    <pre id="json-modal-body"></pre>
-    <button id="json-modal-close">Close</button>
+    <div class="modal-header">
+      <h3>Event Details</h3>
+      <button id="json-modal-close" class="btn-sm secondary">&#10005; Close</button>
+    </div>
+    <div class="modal-body">
+      <pre id="json-modal-body"></pre>
+    </div>
+    <div class="modal-footer" id="json-modal-footer"></div>
   </dialog>
 
   <script src="/app.js"></script>
