@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,16 @@ const (
 	jumphostSource        = "jumphost_events"
 	jumphostSourcetype    = "labshock:dmz:jumphost"
 	jumphostParserVersion = "v1.jumphost_dmz_normalization"
+)
+
+var (
+	jumphostAcceptedKeyWithCertRe = regexp.MustCompile(`(?i)Accepted publickey for ([^\s]+) from ([^\s]+) port ([0-9]+).*CERT ID ([^\s]+)`)
+	jumphostAcceptedKeyRe         = regexp.MustCompile(`(?i)Accepted publickey for ([^\s]+) from ([^\s]+) port ([0-9]+)`)
+	jumphostFailedAuthRe          = regexp.MustCompile(`(?i)Failed (?:publickey|password) for (?:invalid user )?([^\s]+) from ([^\s]+) port ([0-9]+)`)
+	jumphostInvalidUserRe         = regexp.MustCompile(`(?i)Invalid user ([^\s]+) from ([^\s]+) port ([0-9]+)`)
+	jumphostClosedPreauthRe       = regexp.MustCompile(`(?i)Connection closed by ([^\s]+) port ([0-9]+).*preauth`)
+	jumphostSessionOpenedRe       = regexp.MustCompile(`(?i)session opened for user ([^\s]+)`)
+	jumphostSessionClosedRe       = regexp.MustCompile(`(?i)session closed for user ([^\s]+)`)
 )
 
 type jumphostClassification struct {
@@ -117,6 +128,41 @@ func NormalizeJumphostEvent(raw []byte) (event.Event, error) {
 	return buildJumphostEvent(rec, rawFields, class), nil
 }
 
+func NormalizeJumphostSyslog(rec syslogRecord) event.Event {
+	rawFields := map[string]any{
+		"syslog_message":  rec.Message,
+		"syslog_hostname": rec.Hostname,
+		"syslog_appname":  rec.AppName,
+		"syslog_facility": rec.Facility,
+		"syslog_severity": rec.Severity,
+		"docker_tag":      rec.DockerTag,
+	}
+	if strings.TrimSpace(rec.Remote) != "" {
+		rawFields["remote_addr"] = rec.Remote
+	}
+	for k, v := range fieldsFromJumphostSyslogMessage(rec.Message) {
+		rawFields[k] = v
+	}
+
+	message := messageFromJumphostText(rec.Message)
+	if message == "" {
+		message = "jump_event_unknown"
+	}
+	payload := map[string]any{
+		"source":  "jumphost_syslog",
+		"message": message,
+		"raw":     rawFields,
+	}
+	if isJumphostNoise(rec.Message) {
+		payload["low_value"] = true
+	}
+	ev, err := NormalizeJumphostEvent(mustJSON(payload))
+	if err != nil {
+		return event.Event{}
+	}
+	return ev
+}
+
 func normalizeJumphostTextLine(line string) event.Event {
 	rec := map[string]any{
 		"message": messageFromJumphostText(line),
@@ -145,6 +191,11 @@ func buildJumphostEvent(rec, rawFields map[string]any, class jumphostClassificat
 	}
 
 	safePayload := compactGDSMap(redactJumphostValue(rec).(map[string]any))
+	source := jumphostSource
+	if strings.EqualFold(firstString(rec, "source"), "jumphost_syslog") {
+		source = "jumphost_syslog"
+		safePayload = compactGDSMap(redactJumphostValue(rawFields).(map[string]any))
+	}
 	rawJSON, _ := json.Marshal(safePayload)
 
 	tags := map[string]any{}
@@ -167,6 +218,13 @@ func buildJumphostEvent(rec, rawFields map[string]any, class jumphostClassificat
 	if class.AlertCandidate {
 		tags["alert_candidate"] = true
 	}
+	if boolValue(rec["low_value"]) || isJumphostNoise(firstString(rawFields, "syslog_message", "detail", "log_message")) {
+		tags["low_value"] = true
+		tags["collector_decision_hint"] = "sample"
+	}
+	if isJumphostHighValue(class.Message) {
+		tags["high_value"] = true
+	}
 
 	for _, key := range jumphostMetadataKeys {
 		if v, ok := rawFields[key]; ok && v != nil {
@@ -181,7 +239,7 @@ func buildJumphostEvent(rec, rawFields map[string]any, class jumphostClassificat
 		Timestamp:     ts,
 		ReceivedAt:    now,
 		Zone:          "DMZ",
-		Source:        jumphostSource,
+		Source:        source,
 		SourceType:    jumphostSourceType,
 		AssetName:     jumphostAssetName,
 		AssetIP:       jumphostAssetIP,
@@ -230,6 +288,7 @@ func jumphostRawFields(rec map[string]any) map[string]any {
 var jumphostMetadataKeys = []string{
 	"src_ip", "dst_ip", "user", "sudo_command", "target_zone", "session_id",
 	"duration_seconds", "mfa_method", "tty", "pam_service", "remote_addr",
+	"src_port", "cert_id",
 }
 
 func normalizeJumphostMessage(v string) string {
@@ -238,7 +297,10 @@ func normalizeJumphostMessage(v string) string {
 	case "jump_login_attempt", "jump_login_success", "jump_login_failed", "jump_logout",
 		"jump_sudo_executed", "jump_sudo_failed", "jump_session_opened",
 		"jump_session_closed", "jump_heartbeat", "jump_unauthorized_zone_access",
-		"jump_mfa_success", "jump_mfa_failed", "jump_event_unknown":
+		"jump_mfa_success", "jump_mfa_failed", "jump_event_unknown",
+		"jump_cert_login_success", "jump_invalid_user", "jump_preauth_connection_closed",
+		"jump_forward_denied", "jump_session_open", "jump_session_close",
+		"jump_password_auth_disabled", "jump_bastion_policy_applied":
 		return msg
 	default:
 		return ""
@@ -248,6 +310,30 @@ func normalizeJumphostMessage(v string) string {
 func messageFromJumphostText(text string) string {
 	lower := strings.ToLower(text)
 	switch {
+	case jumphostAcceptedKeyWithCertRe.MatchString(text):
+		return "jump_cert_login_success"
+	case jumphostAcceptedKeyRe.MatchString(text):
+		return "jump_login_success"
+	case jumphostFailedAuthRe.MatchString(text):
+		return "jump_login_failed"
+	case jumphostInvalidUserRe.MatchString(text):
+		return "jump_invalid_user"
+	case jumphostClosedPreauthRe.MatchString(text):
+		return "jump_preauth_connection_closed"
+	case strings.Contains(lower, "open failed") || strings.Contains(lower, "administratively prohibited") ||
+		strings.Contains(lower, "permitopen") && strings.Contains(lower, "den") ||
+		strings.Contains(lower, "forward denied"):
+		return "jump_forward_denied"
+	case jumphostSessionOpenedRe.MatchString(text):
+		return "jump_session_open"
+	case jumphostSessionClosedRe.MatchString(text):
+		return "jump_session_close"
+	case strings.Contains(lower, "user/password ssh access is disabled") || strings.Contains(lower, "passwordauthentication no"):
+		return "jump_password_auth_disabled"
+	case strings.Contains(lower, "trustedusercakeys") || strings.Contains(lower, "allowtcpforwarding") ||
+		strings.Contains(lower, "vault ssh ca bastion policy") ||
+		(strings.Contains(lower, "permitopen") && !strings.Contains(lower, "den")):
+		return "jump_bastion_policy_applied"
 	case strings.Contains(lower, "unauthorized") && strings.Contains(lower, "zone"):
 		return "jump_unauthorized_zone_access"
 	case strings.Contains(lower, "sudo") && (strings.Contains(lower, "authentication failure") || strings.Contains(lower, "incorrect password") || strings.Contains(lower, "failed")):
@@ -273,16 +359,18 @@ func messageFromJumphostText(text string) string {
 
 func classifyJumphostMessage(message string) jumphostClassification {
 	switch message {
-	case "jump_login_attempt", "jump_login_success", "jump_mfa_success":
+	case "jump_login_attempt", "jump_login_success", "jump_cert_login_success", "jump_mfa_success":
 		return jumphostClassification{Category: "access_control", Severity: "info"}
-	case "jump_login_failed", "jump_mfa_failed":
+	case "jump_login_failed", "jump_invalid_user", "jump_mfa_failed":
 		return jumphostClassification{Category: "access_control", Severity: "warning"}
-	case "jump_logout", "jump_session_opened", "jump_session_closed":
+	case "jump_logout", "jump_session_opened", "jump_session_closed", "jump_session_open", "jump_session_close", "jump_preauth_connection_closed":
 		return jumphostClassification{Category: "session", Severity: "info"}
-	case "jump_sudo_executed", "jump_sudo_failed":
+	case "jump_sudo_executed", "jump_sudo_failed", "jump_forward_denied":
 		return jumphostClassification{Category: "security", Severity: "warning"}
 	case "jump_unauthorized_zone_access":
 		return jumphostClassification{Category: "security", Severity: "critical"}
+	case "jump_password_auth_disabled", "jump_bastion_policy_applied":
+		return jumphostClassification{Category: "security_config", Severity: "info"}
 	case "jump_heartbeat":
 		return jumphostClassification{Category: "system_health", Severity: "info"}
 	default:
@@ -292,7 +380,7 @@ func classifyJumphostMessage(message string) jumphostClassification {
 
 func validJumphostCategory(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "system_health", "access_control", "security", "session", "error", "system":
+	case "system_health", "access_control", "security", "security_config", "session", "error", "system":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return ""
@@ -314,7 +402,7 @@ func riskForJumphost(message, category, severity string) string {
 	if message == "jump_unauthorized_zone_access" || severity == "critical" {
 		return "CRITICAL"
 	}
-	if message == "jump_sudo_executed" || message == "jump_sudo_failed" || severity == "warning" || category == "security" {
+	if message == "jump_sudo_executed" || message == "jump_sudo_failed" || message == "jump_forward_denied" || severity == "warning" || category == "security" {
 		return "MEDIUM"
 	}
 	if severity == "error" {
@@ -325,7 +413,7 @@ func riskForJumphost(message, category, severity string) string {
 
 func jumphostAlertCandidate(message, category, severity string) bool {
 	switch message {
-	case "jump_login_failed", "jump_sudo_executed", "jump_sudo_failed", "jump_unauthorized_zone_access", "jump_mfa_failed":
+	case "jump_login_failed", "jump_invalid_user", "jump_sudo_executed", "jump_sudo_failed", "jump_unauthorized_zone_access", "jump_mfa_failed", "jump_forward_denied":
 		return true
 	}
 	return severity == "warning" || severity == "error" || severity == "critical" || category == "security"
@@ -338,7 +426,8 @@ func protocolForJumphost(message string, rec, rawFields map[string]any) string {
 		firstString(rawFields, "program", "process", "service", "detail", "log_message"),
 	}, " "))
 	if strings.Contains(blob, "ssh") || strings.Contains(blob, "sshd") || strings.Contains(blob, "pam") ||
-		strings.Contains(message, "login") || strings.Contains(message, "session") || strings.Contains(message, "logout") {
+		strings.Contains(message, "login") || strings.Contains(message, "session") || strings.Contains(message, "logout") ||
+		strings.Contains(message, "forward") || strings.Contains(message, "password_auth") || strings.Contains(message, "bastion_policy") {
 		return "ssh"
 	}
 	return "syslog"
@@ -389,4 +478,50 @@ func isJumphostSensitiveKey(key string) bool {
 func looksLikeJumphostSecret(value string) bool {
 	lower := strings.ToLower(value)
 	return strings.Contains(lower, "-----begin ") || strings.HasPrefix(strings.TrimSpace(lower), "bearer ")
+}
+
+func fieldsFromJumphostSyslogMessage(message string) map[string]any {
+	out := map[string]any{}
+	for _, re := range []*regexp.Regexp{jumphostAcceptedKeyWithCertRe, jumphostAcceptedKeyRe, jumphostFailedAuthRe, jumphostInvalidUserRe} {
+		if m := re.FindStringSubmatch(message); len(m) >= 4 {
+			out["user"] = m[1]
+			out["src_ip"] = m[2]
+			out["src_port"] = m[3]
+			if len(m) >= 5 {
+				out["cert_id"] = m[4]
+			}
+			return out
+		}
+	}
+	if m := jumphostClosedPreauthRe.FindStringSubmatch(message); len(m) >= 3 {
+		out["src_ip"] = m[1]
+		out["src_port"] = m[2]
+		return out
+	}
+	for _, re := range []*regexp.Regexp{jumphostSessionOpenedRe, jumphostSessionClosedRe} {
+		if m := re.FindStringSubmatch(message); len(m) >= 2 {
+			out["user"] = m[1]
+			return out
+		}
+	}
+	return out
+}
+
+func isJumphostNoise(message string) bool {
+	lower := strings.ToLower(message)
+	for _, needle := range []string{"crond", "run-parts", "periodic", "wakeup dt", "file root", "user root pid", "child running /bin/sh"} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func isJumphostHighValue(message string) bool {
+	switch message {
+	case "jump_cert_login_success", "jump_forward_denied":
+		return true
+	default:
+		return false
+	}
 }
