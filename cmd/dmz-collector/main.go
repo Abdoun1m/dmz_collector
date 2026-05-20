@@ -211,12 +211,19 @@ func (a *App) ReadEventByID(id string) (event.Event, bool, error) {
 
 func (a *App) StatsSummary() map[string]any {
 	splunk := a.splunkStats()
+	summary := a.stats.Summary()
 	return map[string]any{
 		"total_events":           a.stats.TotalReceived(),
 		"source_count":           a.sourceCatalog.Count(),
 		"critical_count":         a.stats.SeverityCount("critical"),
 		"warning_count":          a.stats.SeverityCount("warning"),
 		"latest_event_timestamp": a.stats.LatestEventTimestamp(),
+		"security_events":        summary["security_events"],
+		"high_value_events":      summary["high_value_events"],
+		"event_rate_per_second":  summary["event_rate_per_second"],
+		"by_source_type":         summary["by_source_type"],
+		"by_severity":            summary["by_severity"],
+		"by_category":            summary["by_category"],
 		"queue":                  a.QueueStatus(),
 		"splunk_enabled":         splunk["splunk_enabled"],
 		"splunk_hec_url":         splunk["splunk_hec_url"],
@@ -231,6 +238,7 @@ func (a *App) StatsSummary() map[string]any {
 
 func (a *App) Stats() map[string]any {
 	splunk := a.splunkStats()
+	summary := a.stats.Summary()
 	return map[string]any{
 		"service":                a.cfg.ServiceName,
 		"status":                 "ok",
@@ -239,8 +247,17 @@ func (a *App) Stats() map[string]any {
 		"spool_file":             a.cfg.SpoolFile,
 		"queue":                  a.QueueStatus(),
 		"total_events":           a.stats.TotalReceived(),
+		"total_received":         summary["total_received"],
 		"source_count":           a.sourceCatalog.Count(),
 		"latest_event_timestamp": a.stats.LatestEventTimestamp(),
+		"security_events":        summary["security_events"],
+		"high_value_events":      summary["high_value_events"],
+		"event_rate_per_second":  summary["event_rate_per_second"],
+		"by_source_type":         summary["by_source_type"],
+		"by_severity":            summary["by_severity"],
+		"by_category":            summary["by_category"],
+		"top_source":             summary["top_source"],
+		"top_sourcetype":         summary["top_sourcetype"],
 		"splunk_enabled":         splunk["splunk_enabled"],
 		"splunk_hec_url":         splunk["splunk_hec_url"],
 		"splunk_success_count":   splunk["splunk_success_count"],

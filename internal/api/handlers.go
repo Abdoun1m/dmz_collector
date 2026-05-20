@@ -207,7 +207,7 @@ func (a *API) handleForwardingStatus(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleConfigForwarding(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		ingest.WriteJSON(w, http.StatusOK, a.core.ForwardingConfig())
+		ingest.WriteJSON(w, http.StatusOK, forwardingConfigResponse(a.core.ForwardingConfig()))
 	case http.MethodPost:
 		defer r.Body.Close()
 		var cfg config.ForwardingConfig
@@ -215,13 +215,34 @@ func (a *API) handleConfigForwarding(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid forwarding config", http.StatusBadRequest)
 			return
 		}
+		current := a.core.ForwardingConfig()
+		if strings.TrimSpace(cfg.SplunkHECToken) == "" || strings.TrimSpace(cfg.SplunkHECToken) == "********" {
+			cfg.SplunkHECToken = current.SplunkHECToken
+		}
 		if err := a.core.UpdateForwardingConfig(cfg); err != nil {
 			http.Error(w, fmt.Sprintf("update failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		ingest.WriteJSON(w, http.StatusOK, a.core.ForwardingConfig())
+		ingest.WriteJSON(w, http.StatusOK, forwardingConfigResponse(a.core.ForwardingConfig()))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func forwardingConfigResponse(cfg config.ForwardingConfig) map[string]any {
+	return map[string]any{
+		"splunk_enabled":          cfg.SplunkEnabled,
+		"splunk_hec_url":          cfg.SplunkHECURL,
+		"splunk_hec_token":        "",
+		"splunk_hec_token_set":    strings.TrimSpace(cfg.SplunkHECToken) != "",
+		"splunk_index":            cfg.SplunkIndex,
+		"splunk_source":           cfg.SplunkSource,
+		"splunk_verify_tls":       cfg.SplunkVerifyTLS,
+		"syslog_forward_enabled":  cfg.SyslogForwardEnabled,
+		"syslog_forward_host":     cfg.SyslogForwardHost,
+		"syslog_forward_port":     cfg.SyslogForwardPort,
+		"syslog_forward_protocol": cfg.SyslogForwardProtocol,
+		"paused":                  cfg.Paused,
 	}
 }
 

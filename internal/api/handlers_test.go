@@ -72,6 +72,56 @@ func TestHandleStatsSummaryAlias(t *testing.T) {
 	}
 }
 
+type forwardingConfigStub struct {
+	statsCoreStub
+	cfg config.ForwardingConfig
+}
+
+func (s *forwardingConfigStub) ForwardingConfig() config.ForwardingConfig {
+	return s.cfg
+}
+
+func (s *forwardingConfigStub) UpdateForwardingConfig(cfg config.ForwardingConfig) error {
+	s.cfg = cfg
+	return nil
+}
+
+func TestHandleConfigForwardingMasksAndPreservesToken(t *testing.T) {
+	core := &forwardingConfigStub{cfg: config.ForwardingConfig{
+		SplunkEnabled:  true,
+		SplunkHECURL:   "https://splunk.example/services/collector/event",
+		SplunkHECToken: "secret-token",
+		SplunkIndex:    "ot_security",
+		SplunkSource:   "labshock_dmz_collector",
+	}}
+	a := &API{core: core}
+
+	req := httptest.NewRequest(http.MethodGet, "/config/forwarding", nil)
+	rr := httptest.NewRecorder()
+	a.handleConfigForwarding(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d", rr.Code)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if out["splunk_hec_token"] != "" || out["splunk_hec_token_set"] != true {
+		t.Fatalf("expected masked token response, got %#v", out)
+	}
+
+	body := []byte(`{"splunk_enabled":true,"splunk_hec_url":"https://next.example","splunk_hec_token":"********","splunk_index":"ot_security","splunk_source":"labshock_dmz_collector"}`)
+	req = httptest.NewRequest(http.MethodPost, "/config/forwarding", bytes.NewReader(body))
+	rr = httptest.NewRecorder()
+	a.handleConfigForwarding(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if core.cfg.SplunkHECToken != "secret-token" || core.cfg.SplunkHECURL != "https://next.example" {
+		t.Fatalf("expected token preservation and URL update, got %#v", core.cfg)
+	}
+}
+
 type sourceQueryStub struct{}
 
 func (sourceQueryStub) IngestBatch([]event.Event) (int, int, int, []string)  { return 0, 0, 0, nil }
