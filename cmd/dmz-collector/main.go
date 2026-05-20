@@ -127,7 +127,7 @@ func main() {
 		}()
 	}
 
-	httpAPI := api.New(cfg.APIAddr, cfg.IngestToken, cfg.GDSEventsToken, cfg.OPCUADMZEventsToken, app, app.streamHub)
+	httpAPI := api.New(cfg.APIAddr, cfg.IngestToken, cfg.GDSEventsToken, cfg.OPCUADMZEventsToken, cfg.JumphostEventsToken, app, app.streamHub)
 	logger.Info("dmz collector starting", "api", cfg.APIAddr)
 	if err := httpAPI.Run(ctx); err != nil {
 		logger.Error("api stopped with error", "error", err)

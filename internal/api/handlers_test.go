@@ -153,3 +153,25 @@ func TestHandleOPCUADMZEvents(t *testing.T) {
 		t.Fatalf("unexpected normalized events: %#v", core.events)
 	}
 }
+
+func TestHandleJumphostEvents(t *testing.T) {
+	core := &ingestBatchCaptureStub{}
+	a := &API{core: core}
+	body := []byte(`{"message":"jump_login_failed","raw":{"user":"test","src_ip":"192.168.10.5"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/jumphost/events", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	a.handleJumphostEvents(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected HTTP 202, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if out["accepted"].(float64) != 1 || out["queued"].(float64) != 1 {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+	if len(core.events) != 1 || core.events[0].SourceType != "jumphost" || core.events[0].Message != "jump_login_failed" {
+		t.Fatalf("unexpected normalized events: %#v", core.events)
+	}
+}

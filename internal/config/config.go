@@ -20,6 +20,7 @@ type Config struct {
 	IngestToken         string
 	GDSEventsToken      string
 	OPCUADMZEventsToken string
+	JumphostEventsToken string
 	LogLevel            slog.Level
 
 	Splunk SplunkConfig
@@ -83,6 +84,7 @@ func Load() Config {
 		IngestToken:          strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN")),
 		GDSEventsToken:       loadEndpointToken("DMZ_COLLECTOR_GDS_EVENTS_TOKEN", "DMZ_COLLECTOR_GDS_EVENTS_TOKEN_FILE", strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN"))),
 		OPCUADMZEventsToken:  loadEndpointToken("DMZ_COLLECTOR_OPCUA_DMZ_EVENTS_TOKEN", "DMZ_COLLECTOR_OPCUA_DMZ_EVENTS_TOKEN_FILE", strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN"))),
+		JumphostEventsToken:  loadEndpointToken("DMZ_COLLECTOR_JUMPHOST_EVENTS_TOKEN", "DMZ_COLLECTOR_JUMPHOST_EVENTS_TOKEN_FILE", strings.TrimSpace(os.Getenv("DMZ_INGEST_TOKEN"))),
 		LogLevel:             parseLevel(getenv("LOG_LEVEL", "info")),
 		Splunk:               loadSplunk(),
 		Syslog:               loadSyslog(),
