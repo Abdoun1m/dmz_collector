@@ -1,10 +1,11 @@
 /* =========================================================
-   DataProtect DMZ Collector — Frontend App
+   DataProtect DMZ Collector - Frontend App
    All API calls preserved. No fake data.
    ========================================================= */
 
 const API_BASE = String(window.DMZ_COLLECTOR_API_BASE || localStorage.getItem("dmz_api_base") || "").replace(/\/$/, "");
 const MAX_LIVE_EVENTS = 300;
+const AUTO_REFRESH_MS = 5000;
 
 const state = {
   activeTab: "dashboard",
@@ -54,7 +55,7 @@ const state = {
   },
 };
 
-/* ── DOM refs ──────────────────────────────────────────────── */
+/* -- DOM refs ------------------------------------------------ */
 const tabs = document.querySelectorAll(".tabs button");
 const jsonModal = document.getElementById("json-modal");
 const jsonModalBody = document.getElementById("json-modal-body");
@@ -70,7 +71,7 @@ tabs.forEach((btn) => {
   });
 });
 
-/* ── API adapter (unchanged) ───────────────────────────────── */
+/* -- API adapter (unchanged) --------------------------------- */
 async function api(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
@@ -89,7 +90,7 @@ async function api(path, opts = {}) {
   return body ?? {};
 }
 
-/* ── Core utilities (unchanged) ────────────────────────────── */
+/* -- Core utilities (unchanged) ------------------------------ */
 function setError(key, err) {
   if (err) state.errors[key] = err.message || String(err);
   else delete state.errors[key];
@@ -151,7 +152,7 @@ function normalizeEvent(e) {
   };
 }
 
-/* ── Notice/error/empty blocks ─────────────────────────────── */
+/* -- Notice/error/empty blocks ------------------------------- */
 function errorBlock(key) {
   if (!state.errors[key]) return "";
   return `<div class="notice error">&#9888; ${esc(state.errors[key])}</div>`;
@@ -166,7 +167,23 @@ function emptyState(text) {
   return `<div class="empty">${esc(text)}</div>`;
 }
 
-/* ── Theme toggle ──────────────────────────────────────────── */
+function loadingState(text) {
+  return `<div class="notice info">${esc(text)}</div>`;
+}
+
+function operatorIsEditing() {
+  if (jsonModal?.open) return true;
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName);
+}
+
+function liveRenderAllowed() {
+  return !operatorIsEditing();
+}
+
+/* -- Theme toggle -------------------------------------------- */
 function initTheme() {
   const saved = localStorage.getItem("dmz-theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
@@ -182,7 +199,7 @@ function initTheme() {
   });
 }
 
-/* ── Render helpers ────────────────────────────────────────── */
+/* -- Render helpers ------------------------------------------ */
 function card(label, value, sub) {
   return `<article class="card">
     <div class="label">${esc(label)}</div>
@@ -214,7 +231,7 @@ function decisionBadge(decision) {
   else if (d.includes("sample")) cls = "action-sample";
   else if (d.includes("store")) cls = "action-store";
   else if (d.includes("keep")) cls = "action-keep";
-  return `<span class="badge ${cls}">${esc(decision || "–")}</span>`;
+  return `<span class="badge ${cls}">${esc(decision || "-")}</span>`;
 }
 
 function statusDot(ok) {
@@ -267,7 +284,7 @@ function renderApiHealthGrid() {
   </div>`;
 }
 
-/* ── Dashboard ─────────────────────────────────────────────── */
+/* -- Dashboard ----------------------------------------------- */
 function renderTimeline() {
   const rows = state.timeline || [];
   if (!rows.length) return emptyState("No timeline data yet.");
@@ -315,6 +332,7 @@ function renderDashboard() {
 
   document.getElementById("tab-dashboard").innerHTML = `
     ${errorBlock("core")}
+    ${totalEvents === 0 && !state.errors.core ? loadingState("Live collector data loaded. No events are currently stored.") : ""}
     <div class="page-header">
       <div class="page-header-left">
         <h2>DMZ Collector Overview</h2>
@@ -330,13 +348,13 @@ function renderDashboard() {
     <div class="section-head"><h3>Event Processing</h3></div>
     <div class="grid">
       ${statCard("Total Events", safe(totalEvents, 0), eps !== undefined ? `${eps} ev/s` : "", "red")}
-      ${statCard("Forwarded", safe(q.forwarded || fwdSt.forwarded, 0), fwd.splunk_hec_url ? "to SIEM" : "–", "cyan")}
+      ${statCard("Forwarded", safe(q.forwarded || fwdSt.forwarded, 0), fwd.splunk_hec_url ? "to SIEM" : "-", "cyan")}
       ${statCard("Queued", safe(q.queued, 0), q.paused ? "forwarding paused" : "active", "")}
-      ${statCard("Failed", safe(q.failed || fwdSt.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "–", q.failed ? "warn" : "")}
+      ${statCard("Failed", safe(q.failed || fwdSt.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "-", q.failed ? "warn" : "")}
       ${statCard("Critical", safe(ss.critical_count, 0), "events", "red")}
       ${statCard("Warning", safe(ss.warning_count, 0), "events", "warn")}
       ${statCard("Sources", safe(ss.source_count || st.source_count, 0), "registered", "info")}
-      ${statCard("Spool File", q.spool_file || fwd.spool_file || "–", q.queued ? `${q.queued} pending` : "empty", "purple")}
+      ${statCard("Spool File", q.spool_file || fwd.spool_file || "-", q.queued ? `${q.queued} pending` : "empty", "purple")}
     </div>
 
     <div class="dashboard-grid">
@@ -367,7 +385,7 @@ function renderDashboard() {
   `;
 }
 
-/* ── Events ────────────────────────────────────────────────── */
+/* -- Events -------------------------------------------------- */
 function eventQueryParams() {
   const qs = new URLSearchParams({ limit: "300" });
   for (const key of ["source_type", "severity", "category", "asset", "search"]) {
@@ -413,7 +431,7 @@ function renderEvents() {
     <div class="page-header">
       <div class="page-header-left">
         <h2>Event Console</h2>
-        <p>Live SOC event feed — ${allRows.length} visible, ${critCount > 0 ? `${critCount} critical` : "no critical"}</p>
+        <p>Live SOC event feed - ${allRows.length} visible, ${critCount > 0 ? `${critCount} critical` : "no critical"}</p>
       </div>
     </div>
 
@@ -428,7 +446,7 @@ function renderEvents() {
       </label>
       <label>Category<input id="flt-category" placeholder="category" value="${esc(f.category)}" style="width:130px" /></label>
       <label>Asset<input id="flt-asset" placeholder="IP or name" value="${esc(f.asset)}" style="width:130px" /></label>
-      <label>Decision<input id="flt-decision" placeholder="forward / drop…" value="${esc(f.decision)}" style="width:130px" /></label>
+      <label>Decision<input id="flt-decision" placeholder="forward / drop..." value="${esc(f.decision)}" style="width:130px" /></label>
       <label>Search<input id="flt-search" placeholder="message / raw / tags" value="${esc(f.search)}" style="width:180px" /></label>
       <button id="flt-apply" class="primary">Apply</button>
       <button id="flt-clear" class="secondary">Clear</button>
@@ -442,7 +460,7 @@ function renderEvents() {
       <span class="chip ${state.stream.paused ? "chip-warn" : "chip-dim"}">
         ${state.stream.paused ? "&#9646;&#9646; paused" : "&#9654; live"}
       </span>
-      <span class="muted" style="font-size:11px">last: ${esc(state.stream.lastEventAt || "–")}</span>
+      <span class="muted" style="font-size:11px">last: ${esc(state.stream.lastEventAt || "-")}</span>
       <button id="stream-toggle" class="btn-sm">${state.stream.paused ? "Resume" : "Pause"}</button>
       <button id="stream-reconnect" class="btn-sm secondary">Reconnect</button>
     </div>
@@ -473,9 +491,9 @@ function renderEvents() {
               <td>${esc(e.source_type)}<br><small class="muted mono">${esc(e.component)}</small></td>
               <td>${badge(e.severity)}</td>
               <td>${esc(e.event_category)}</td>
-              <td class="mono" style="font-size:11px">${esc(e.asset_name || e.asset_ip || e.source_ip || "–")}</td>
+              <td class="mono" style="font-size:11px">${esc(e.asset_name || e.asset_ip || e.source_ip || "-")}</td>
               <td>${decisionBadge(e.collector_decision)}<br><small class="muted mono">${esc(e.matched_rule_id || "")}</small></td>
-              <td class="mono" style="font-size:11px">${esc(e.siem_index_hint || "–")}<br>${esc(e.splunk_sourcetype || "–")}</td>
+              <td class="mono" style="font-size:11px">${esc(e.siem_index_hint || "-")}<br>${esc(e.splunk_sourcetype || "-")}</td>
               <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.message)}</td>
               <td><button data-id="${esc(e.id)}" class="show-json btn-sm">JSON</button></td>
             </tr>
@@ -495,7 +513,7 @@ function renderEvents() {
         <span class="muted" style="font-size:12px">${state.eventPage} / ${totalPages}</span>
         <button id="page-next" ${state.eventPage >= totalPages ? "disabled" : ""}>Next &#8594;</button>
       </div>
-    ` : emptyState("No events match the current filters.")}
+    ` : emptyState(state.errors.events ? "Events are unavailable until the API recovers." : "No live events match the current filters.")}
   `;
   bindEventsTab(allRows);
 }
@@ -549,7 +567,7 @@ function bindEventsTab(allRows) {
 }
 
 function showJSON(row) {
-  jsonModalBody.textContent = JSON.stringify(row, null, 2);
+  jsonModalBody.textContent = JSON.stringify(row ?? { error: "No event data available." }, null, 2);
   const footer = document.getElementById("json-modal-footer");
   if (footer) {
     const existing = footer.querySelector("#copy-json");
@@ -559,16 +577,25 @@ function showJSON(row) {
     copy.className = "primary";
     copy.textContent = "Copy JSON";
     copy.addEventListener("click", async () => {
-      await navigator.clipboard?.writeText(jsonModalBody.textContent);
-      copy.textContent = "✓ Copied";
-      setTimeout(() => { copy.textContent = "Copy JSON"; }, 2000);
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+        await navigator.clipboard.writeText(jsonModalBody.textContent || "");
+        copy.textContent = "Copied";
+      } catch (err) {
+        copy.textContent = "Copy failed";
+        copy.title = err.message || String(err);
+      }
+      setTimeout(() => {
+        copy.textContent = "Copy JSON";
+        copy.title = "";
+      }, 2000);
     });
     footer.appendChild(copy);
   }
   jsonModal.showModal();
 }
 
-/* ── Sources ───────────────────────────────────────────────── */
+/* -- Sources ------------------------------------------------- */
 function sourceGroups() {
   return ["Firewall", "PLCs", "SCADA / FUXA", "OPC UA", "GDS / PKI", "Engineering Workstation", "DMZ Services", "IDS / Future Monitoring", "Unknown / Other"];
 }
@@ -618,7 +645,7 @@ function sourceCard(source) {
             <span class="status-dot ${isEnabled ? "ok" : "off"}"></span>
             <span class="source-name">${esc(source.name || source.asset_name || source.id || source.source_key)}</span>
           </div>
-          <div class="source-meta">${esc(source.group)} &middot; ${esc(source.zone || "–")} &middot; ${esc(source.protocol || "–")}</div>
+          <div class="source-meta">${esc(source.group)} &middot; ${esc(source.zone || "-")} &middot; ${esc(source.protocol || "-")}</div>
         </div>
         <div class="source-badges">
           ${badge(isEnabled ? "enabled" : "disabled", isEnabled ? "sev" : "cat")}
@@ -627,12 +654,12 @@ function sourceCard(source) {
         </div>
       </div>
       <div class="source-body">
-        <div><span class="label">IP</span> <span class="mono">${esc(source.asset_ip || "–")}</span></div>
+        <div><span class="label">IP</span> <span class="mono">${esc(source.asset_ip || "-")}</span></div>
         <div><span class="label">Type</span> <span>${esc(source.source_type)}</span></div>
-        <div><span class="label">Last Seen</span> <span class="mono">${esc(source.last_seen || "–")}</span></div>
+        <div><span class="label">Last Seen</span> <span class="mono">${esc(source.last_seen || "-")}</span></div>
         <div><span class="label">Events</span> <strong>${safe(source.event_count, 0)}</strong></div>
-        <div><span class="label">Index</span> <span class="mono">${esc(source.siem_index_hint || "–")}</span></div>
-        <div><span class="label">Impact</span> <span>${esc(source.impact || "–")}</span></div>
+        <div><span class="label">Index</span> <span class="mono">${esc(source.siem_index_hint || "-")}</span></div>
+        <div><span class="label">Impact</span> <span>${esc(source.impact || "-")}</span></div>
       </div>
       <div class="source-section"><div class="label">Severity</div><div class="badge-row">${badgeList(source.severity_counts)}</div></div>
       <div class="source-section"><div class="label">Categories</div><div class="badge-row">${badgeList(source.category_counts, "cat")}</div></div>
@@ -664,8 +691,8 @@ function renderSources() {
         <p>DMZ asset and telemetry source inventory</p>
       </div>
       <div class="page-header-right">
-        <span class="chip chip-dim">&#128336; ${esc(snapshot.generated_at || "–")}</span>
-        <div class="notice readonly" style="margin:0">&#128274; Read-only — source CRUD not implemented</div>
+        <span class="chip chip-dim">&#128336; ${esc(snapshot.generated_at || "-")}</span>
+        <div class="notice readonly" style="margin:0">&#128274; Read-only - source CRUD not implemented</div>
       </div>
     </div>
 
@@ -776,7 +803,7 @@ function bindSourcesTab() {
   });
 }
 
-/* ── Queue ─────────────────────────────────────────────────── */
+/* -- Queue --------------------------------------------------- */
 function renderQueue() {
   const q = state.queue || {};
   document.getElementById("tab-queue").innerHTML = `
@@ -796,23 +823,23 @@ function renderQueue() {
     <div class="grid">
       ${statCard("Queued", safe(q.queued, 0), q.paused ? "forwarding paused" : "pending dispatch", "")}
       ${statCard("Forwarded", safe(q.forwarded, 0), "total", "cyan")}
-      ${statCard("Failed", safe(q.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "–", q.failed ? "warn" : "")}
-      ${statCard("Last Success", "–", fmtTime(q.last_success), "ok")}
+      ${statCard("Failed", safe(q.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "-", q.failed ? "warn" : "")}
+      ${statCard("Last Success", "-", fmtTime(q.last_success), "ok")}
     </div>
 
     <div class="section-head" style="margin-top:16px"><h3>Spool</h3></div>
     <article class="card">
       <div class="info-row">
         <span class="info-key">Spool file</span>
-        <span class="info-val mono">${esc(q.spool_file || "–")}</span>
+        <span class="info-val mono">${esc(q.spool_file || "-")}</span>
       </div>
       <div class="info-row">
         <span class="info-key">Last failure</span>
-        <span class="info-val">${esc(fmtTime(q.last_failure) || "–")}</span>
+        <span class="info-val">${esc(fmtTime(q.last_failure) || "-")}</span>
       </div>
       <div class="info-row">
         <span class="info-key">Last success</span>
-        <span class="info-val">${esc(fmtTime(q.last_success) || "–")}</span>
+        <span class="info-val">${esc(fmtTime(q.last_success) || "-")}</span>
       </div>
     </article>
 
@@ -840,11 +867,11 @@ async function setPaused(paused) {
   renderQueue();
 }
 
-/* ── Forwarding ────────────────────────────────────────────── */
+/* -- Forwarding ---------------------------------------------- */
 function renderForwarding() {
   const cfg = state.forwarding || {};
   const st = state.forwardingStatus || {};
-  const tokenPlaceholder = cfg.splunk_hec_token_set ? "••••••••" : "";
+  const tokenPlaceholder = cfg.splunk_hec_token_set ? "********" : "";
   const splunkOk = cfg.splunk_enabled && cfg.splunk_hec_url;
   const syslogOk = cfg.syslog_forward_enabled && cfg.syslog_forward_host;
 
@@ -867,12 +894,12 @@ function renderForwarding() {
         <span class="conn-status-text">${splunkOk ? "Splunk HEC Connected" : "Splunk HEC Not Configured"}</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:13px">
-        <div class="info-row"><span class="info-key">URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "–")}</span></div>
-        <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "–")}</span></div>
-        <div class="info-row"><span class="info-key">Source</span><span class="info-val mono">${esc(cfg.splunk_source || "–")}</span></div>
+        <div class="info-row"><span class="info-key">URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Source</span><span class="info-val mono">${esc(cfg.splunk_source || "-")}</span></div>
         <div class="info-row"><span class="info-key">Token</span><span class="info-val">${cfg.splunk_hec_token_set ? "&#11044; set" : "not set"}</span></div>
         <div class="info-row"><span class="info-key">TLS Verify</span><span class="info-val">${cfg.splunk_verify_tls ? "yes" : "no"}</span></div>
-        <div class="info-row"><span class="info-key">Last response</span><span class="info-val mono">${esc(st.last_response || "–")}</span></div>
+        <div class="info-row"><span class="info-key">Last response</span><span class="info-val mono">${esc(st.last_response || "-")}</span></div>
       </div>
     </div>
 
@@ -911,9 +938,9 @@ function renderForwarding() {
     <div class="section-head"><h3>Forwarding Metrics</h3></div>
     <div class="metric-grid">
       ${statCard("Forwarded", safe(st.forwarded, 0), "total", "cyan")}
-      ${statCard("Failed", safe(st.failed, 0), "–", st.failed ? "warn" : "")}
+      ${statCard("Failed", safe(st.failed, 0), "-", st.failed ? "warn" : "")}
       ${statCard("Queued", safe(st.queued, 0), "pending", "")}
-      ${statCard("Last Response", safe(st.last_response || "–", "–"), "HTTP status", "")}
+      ${statCard("Last Response", safe(st.last_response || "-", "-"), "HTTP status", "")}
     </div>
 
     <div class="notice info" style="margin-top:16px">
@@ -947,7 +974,7 @@ async function saveForwarding() {
   renderForwarding();
 }
 
-/* ── Rules ─────────────────────────────────────────────────── */
+/* -- Rules --------------------------------------------------- */
 function renderRules() {
   const rules = Array.isArray(state.rules) ? state.rules : (state.rules?.rules || []);
   const filters = state.filterConfig?.filters || [];
@@ -978,7 +1005,7 @@ function renderRules() {
         <p>Collector filter and decision policy</p>
       </div>
       <div class="page-header-right">
-        <div class="notice readonly" style="margin:0">&#128274; Read-only — rule CRUD not implemented</div>
+        <div class="notice readonly" style="margin:0">&#128274; Read-only - rule CRUD not implemented</div>
       </div>
     </div>
 
@@ -1012,7 +1039,7 @@ function renderRules() {
   `;
 }
 
-/* ── SIEM / Routing ────────────────────────────────────────── */
+/* -- SIEM / Routing ------------------------------------------ */
 function renderSplunk() {
   const st = state.forwardingStatus || {};
   const cfg = state.forwarding || {};
@@ -1031,14 +1058,14 @@ function renderSplunk() {
       ${statCard("Forwarded", safe(st.forwarded, 0), "total events sent", "cyan")}
       ${statCard("Failed", safe(st.failed, 0), "forwarding errors", st.failed ? "warn" : "")}
       ${statCard("Queued", safe(q.queued, 0), "pending in spool", "")}
-      ${statCard("Last Response", safe(st.last_response || "–", "–"), "HTTP status from SIEM", "")}
+      ${statCard("Last Response", safe(st.last_response || "-", "-"), "HTTP status from SIEM", "")}
     </div>
 
     <div class="section-head"><h3>Routing Configuration</h3></div>
     <article class="card">
-      <div class="info-row"><span class="info-key">HEC URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "–")}</span></div>
-      <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "–")}</span></div>
-      <div class="info-row"><span class="info-key">Source tag</span><span class="info-val mono">${esc(cfg.splunk_source || "–")}</span></div>
+      <div class="info-row"><span class="info-key">HEC URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Source tag</span><span class="info-val mono">${esc(cfg.splunk_source || "-")}</span></div>
       <div class="info-row"><span class="info-key">HEC Token</span><span class="info-val">${cfg.splunk_hec_token_set ? "&#11044; configured (masked)" : "&#9675; not set"}</span></div>
       <div class="info-row"><span class="info-key">TLS Verify</span><span class="info-val">${cfg.splunk_verify_tls ? "yes" : "no"}</span></div>
       <div class="info-row"><span class="info-key">Forwarding enabled</span><span class="info-val">${cfg.splunk_enabled ? "yes" : "no"}</span></div>
@@ -1058,7 +1085,7 @@ index=ot_security collector_decision=forward
 | timechart span=1h count by source_type</pre>
     </article>
 
-    <div class="section-head"><h3>DMZ → SIEM Pipeline</h3></div>
+    <div class="section-head"><h3>DMZ -> SIEM Pipeline</h3></div>
     <article class="card">
       ${miniPipeline([
         { label: "OT Collector", cls: "n-ot" },
@@ -1070,7 +1097,7 @@ index=ot_security collector_decision=forward
   `;
 }
 
-/* ── Settings / Diagnostics ────────────────────────────────── */
+/* -- Settings / Diagnostics ---------------------------------- */
 function renderSettings() {
   const h = state.health || {};
   const st = state.stats || {};
@@ -1095,9 +1122,9 @@ function renderSettings() {
 
     <div class="section-head"><h3>Storage</h3></div>
     <article class="card">
-      <div class="info-row"><span class="info-key">Backend</span><span class="info-val mono">${esc(h.storage_backend || "–")}</span></div>
-      <div class="info-row"><span class="info-key">Events file</span><span class="info-val mono">${esc(h.events_file || "–")}</span></div>
-      <div class="info-row"><span class="info-key">Spool file</span><span class="info-val mono">${esc(h.spool_file || "–")}</span></div>
+      <div class="info-row"><span class="info-key">Backend</span><span class="info-val mono">${esc(h.storage_backend || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Events file</span><span class="info-val mono">${esc(h.events_file || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Spool file</span><span class="info-val mono">${esc(h.spool_file || "-")}</span></div>
       <div class="info-row"><span class="info-key">Total events</span><span class="info-val">${safe(st.total_events || ss.total_events, 0)}</span></div>
     </article>
 
@@ -1122,7 +1149,7 @@ function renderSettings() {
   `;
 }
 
-/* ── Action helper ─────────────────────────────────────────── */
+/* -- Action helper ------------------------------------------- */
 async function action(key, fn, success) {
   try {
     setError(key, null);
@@ -1137,7 +1164,7 @@ async function action(key, fn, success) {
   }
 }
 
-/* ── Data loaders (API contract unchanged) ─────────────────── */
+/* -- Data loaders (API contract unchanged) ------------------- */
 async function loadEvents() {
   try {
     state.events = await api(`/events?${eventQueryParams().toString()}`);
@@ -1195,7 +1222,7 @@ async function loadCore() {
 
   const status = state.health?.status || (failures.length ? "degraded" : "ok");
   const healthEl = document.getElementById("health-pill");
-  healthEl.textContent = `● ${status}`;
+  healthEl.textContent = `status: ${status}`;
   healthEl.className = `chip ${status === "ok" ? "chip-ok" : "chip-warn"}`;
 
   const eps = state.stats?.event_rate_per_second;
@@ -1206,15 +1233,22 @@ async function loadCore() {
   const fwdEl = document.getElementById("fwd-pill");
   if (fwdEl) {
     const fwdEnabled = state.forwarding?.splunk_enabled || state.forwarding?.syslog_forward_enabled;
-    fwdEl.textContent = `→ ${fwdEnabled ? "fwd on" : "fwd off"}`;
+    fwdEl.textContent = `-> ${fwdEnabled ? "fwd on" : "fwd off"}`;
     fwdEl.className = `chip ${fwdEnabled ? "chip-cyan" : "chip-dim"}`;
   }
 }
 
-async function refresh({ includeEvents = false } = {}) {
+async function refresh({ includeEvents = false, render = true } = {}) {
   await Promise.all([loadCore(), loadSources(), loadRules()]);
   if (includeEvents) await loadEvents();
-  renderActiveTab();
+  if (render) renderActiveTab();
+}
+
+async function autoRefresh() {
+  await loadCore();
+  if (state.activeTab === "dashboard" && liveRenderAllowed()) {
+    renderDashboard();
+  }
 }
 
 function renderAll() {
@@ -1242,7 +1276,7 @@ function renderActiveTab() {
   }
 }
 
-/* ── SSE stream (unchanged) ────────────────────────────────── */
+/* -- SSE stream (unchanged) ---------------------------------- */
 function connectStream() {
   if (!window.EventSource) {
     state.stream.connected = false;
@@ -1255,7 +1289,7 @@ function connectStream() {
   state.stream.source = source;
   source.addEventListener("ready", () => {
     state.stream.connected = true;
-    renderEvents();
+    if (state.activeTab === "events" && liveRenderAllowed()) renderEvents();
   });
   source.addEventListener("event", (msg) => {
     state.stream.connected = true;
@@ -1266,7 +1300,7 @@ function connectStream() {
         state.events = [ev, ...state.events].slice(0, MAX_LIVE_EVENTS);
       }
       state.stream.lastEventAt = new Date().toISOString();
-      if (state.activeTab === "events") renderEvents();
+      if (state.activeTab === "events" && liveRenderAllowed()) renderEvents();
       else if (state.activeTab === "dashboard") renderDashboard();
     } catch (err) {
       setError("events", err);
@@ -1274,17 +1308,17 @@ function connectStream() {
   });
   source.onerror = () => {
     state.stream.connected = false;
-    if (state.activeTab === "events") renderEvents();
+    if (state.activeTab === "events" && liveRenderAllowed()) renderEvents();
   };
 }
 
-/* ── Init ──────────────────────────────────────────────────── */
+/* -- Init ---------------------------------------------------- */
 async function init() {
   initTheme();
   renderAll();
   await refresh({ includeEvents: true });
   connectStream();
-  setInterval(() => refresh({ includeEvents: false }), 5000);
+  setInterval(autoRefresh, AUTO_REFRESH_MS);
 }
 
 init();

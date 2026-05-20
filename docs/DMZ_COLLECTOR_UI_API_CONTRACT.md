@@ -7,6 +7,7 @@ This document describes the live backend contract used by the embedded DMZ Colle
 - Framework: static HTML, CSS, and vanilla JavaScript embedded from `web/`.
 - API base: same-origin by default. Override only for split deployments with `window.DMZ_COLLECTOR_API_BASE` or `localStorage.dmz_api_base`.
 - No mock operational data is rendered. Empty panels represent empty live responses or API errors.
+- Background refresh updates health, stats, queue, and forwarding state without rerendering active operator forms or filters.
 
 ## Backend Architecture
 
@@ -64,6 +65,7 @@ The UI normalizes backend events before display:
 - `GET /config/forwarding` returns `splunk_hec_token_set=true|false` and never returns the HEC token value.
 - `POST /config/forwarding` preserves the current token when `splunk_hec_token` is blank or `********`.
 - The UI renders raw logs with text escaping; it does not inject raw HTML.
+- JSON copy actions report failure when the browser clipboard API is unavailable instead of implying success.
 
 ## Intentional Limitations
 

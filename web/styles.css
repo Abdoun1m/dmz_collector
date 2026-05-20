@@ -1,9 +1,9 @@
 /* =========================================================
-   DataProtect DMZ Collector — Design System
+   DataProtect DMZ Collector - Design System
    Dark-first, SOC/DMZ telemetry dashboard
    ========================================================= */
 
-/* ── Design tokens ───────────────────────────────────────── */
+/* -- Design tokens ----------------------------------------- */
 :root {
   /* Brand */
   --dp-red:        #EF233C;
@@ -57,7 +57,7 @@
   --text-dim:    #A3A3A3;
 }
 
-/* ── Reset ───────────────────────────────────────────────── */
+/* -- Reset ------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -72,14 +72,14 @@ body {
   overflow: hidden;
 }
 
-/* ── App shell ───────────────────────────────────────────── */
+/* -- App shell --------------------------------------------- */
 .app-shell {
   display: flex;
   flex: 1;
   overflow: hidden;
 }
 
-/* ── Topbar ──────────────────────────────────────────────── */
+/* -- Topbar ------------------------------------------------ */
 .topbar {
   display: flex;
   align-items: center;
@@ -146,7 +146,7 @@ body {
   overflow: hidden;
 }
 
-/* ── Chips / Pills ───────────────────────────────────────── */
+/* -- Chips / Pills ----------------------------------------- */
 .chip, .pill {
   display: inline-flex;
   align-items: center;
@@ -190,7 +190,7 @@ body {
 :root[data-theme="light"] .chip-cyan
   { border-color: #0e7490; background: #cffafe; color: #0891b2; }
 
-/* ── Theme toggle ────────────────────────────────────────── */
+/* -- Theme toggle ------------------------------------------ */
 .theme-toggle {
   background: var(--panel-alt);
   border: 1px solid var(--border);
@@ -204,7 +204,7 @@ body {
 }
 .theme-toggle:hover { border-color: var(--border-hi); color: var(--text); }
 
-/* ── Sidebar ─────────────────────────────────────────────── */
+/* -- Sidebar ----------------------------------------------- */
 .sidebar {
   width: var(--sidebar-w);
   background: var(--panel);
@@ -240,7 +240,7 @@ body {
   gap: 6px;
 }
 
-/* ── Nav tabs — sidebar buttons (.tabs kept for JS compat) ─ */
+/* -- Nav tabs - sidebar buttons (.tabs kept for JS compat) - */
 .tabs {
   display: flex;
   flex-direction: column;
@@ -287,7 +287,7 @@ body {
 
 .tabs button.active .nav-icon { opacity: 1; }
 
-/* ── Main content ────────────────────────────────────────── */
+/* -- Main content ------------------------------------------ */
 main {
   flex: 1;
   overflow-y: auto;
@@ -298,7 +298,7 @@ main {
 .tab { display: none; }
 .tab.active { display: block; }
 
-/* ── Page header ─────────────────────────────────────────── */
+/* -- Page header ------------------------------------------- */
 .page-header {
   display: flex;
   align-items: flex-end;
@@ -329,7 +329,7 @@ main {
   flex-shrink: 0;
 }
 
-/* ── Section header ──────────────────────────────────────── */
+/* -- Section header ---------------------------------------- */
 .section-head {
   display: flex;
   align-items: center;
@@ -346,7 +346,7 @@ main {
   letter-spacing: 1px;
 }
 
-/* ── Grid layouts ────────────────────────────────────────── */
+/* -- Grid layouts ------------------------------------------ */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -372,7 +372,7 @@ main {
   gap: 12px;
 }
 
-/* ── Card ────────────────────────────────────────────────── */
+/* -- Card -------------------------------------------------- */
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -389,7 +389,7 @@ main {
   margin-bottom: 12px;
 }
 
-/* ── KPI Stat Card ───────────────────────────────────────── */
+/* -- KPI Stat Card ----------------------------------------- */
 .stat-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -445,7 +445,7 @@ main {
 .kpi   { font-size: 24px; font-weight: 800; line-height: 1; color: var(--text); letter-spacing: -0.5px; margin: 3px 0; }
 .label { color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
 
-/* ── Badges ──────────────────────────────────────────────── */
+/* -- Badges ------------------------------------------------ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -500,7 +500,7 @@ main {
 :root[data-theme="light"] .action-drop  { border-color: #fca5a5; background: #fee2e2; color: #b91c1c; }
 :root[data-theme="light"] .action-forward { border-color: #a5f3fc; background: #cffafe; color: #0891b2; }
 
-/* ── Status dot ──────────────────────────────────────────── */
+/* -- Status dot -------------------------------------------- */
 .status-dot {
   display: inline-block;
   width: 8px;
@@ -519,7 +519,7 @@ main {
   50%       { opacity: 0.3; }
 }
 
-/* ── Notices ─────────────────────────────────────────────── */
+/* -- Notices ----------------------------------------------- */
 .notice, .empty {
   border-radius: var(--r-md);
   padding: 10px 14px;
@@ -551,7 +551,7 @@ main {
   font-size: 13px;
 }
 
-/* ── Toolbar ─────────────────────────────────────────────── */
+/* -- Toolbar ----------------------------------------------- */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -578,7 +578,7 @@ main {
 
 .actionbar { align-items: flex-end; }
 
-/* ── Form inputs ─────────────────────────────────────────── */
+/* -- Form inputs ------------------------------------------- */
 input, select, textarea, button { font: inherit; }
 
 input, select, textarea {
@@ -594,9 +594,16 @@ input, select, textarea {
 }
 
 input:focus, select:focus, textarea:focus { border-color: var(--dp-red); }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--dp-cyan);
+  outline-offset: 2px;
+}
 input[type="checkbox"] { width: auto; accent-color: var(--dp-red); }
 
-/* ── Buttons ─────────────────────────────────────────────── */
+/* -- Buttons ----------------------------------------------- */
 button {
   background: var(--panel-alt);
   color: var(--text);
@@ -637,7 +644,7 @@ button.btn-sm {
   font-size: 11px;
 }
 
-/* ── Tables ──────────────────────────────────────────────── */
+/* -- Tables ------------------------------------------------ */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -681,6 +688,9 @@ tbody tr.row-critical { border-left-color: var(--s-critical); }
 tbody tr.row-error    { border-left-color: #ef4444; }
 tbody tr.row-warning  { border-left-color: var(--s-warning); }
 tbody tr.row-info     { border-left-color: var(--s-info); }
+tbody tr.row-critical { background: rgba(220, 38, 38, 0.08); }
+tbody tr.row-error    { background: rgba(239, 68, 68, 0.05); }
+tbody tr.row-warning  { background: rgba(245, 158, 11, 0.05); }
 
 .details-row td {
   padding: 0 10px 8px;
@@ -688,7 +698,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
   border-left: 3px solid transparent;
 }
 
-/* ── Sort button ─────────────────────────────────────────── */
+/* -- Sort button ------------------------------------------- */
 .table-sort {
   border: none;
   background: transparent;
@@ -703,7 +713,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
 }
 .table-sort.active, .table-sort:hover { color: var(--text); }
 
-/* ── Table meta / stream / pager ─────────────────────────── */
+/* -- Table meta / stream / pager --------------------------- */
 .table-meta {
   display: flex;
   align-items: center;
@@ -734,7 +744,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
   margin-top: 8px;
 }
 
-/* ── Bar charts ──────────────────────────────────────────── */
+/* -- Bar charts -------------------------------------------- */
 .bars { display: grid; gap: 6px; }
 
 .bar-row {
@@ -776,7 +786,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
   text-align: right;
 }
 
-/* ── Timeline ────────────────────────────────────────────── */
+/* -- Timeline ---------------------------------------------- */
 .timeline {
   align-items: end;
   display: grid;
@@ -804,7 +814,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
   border-radius: var(--r-xs) var(--r-xs) 0 0;
 }
 
-/* ── Mini pipeline ───────────────────────────────────────── */
+/* -- Mini pipeline ----------------------------------------- */
 .mini-pipeline {
   display: flex;
   align-items: center;
@@ -837,7 +847,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
   flex-shrink: 0;
 }
 
-/* ── Source inventory ────────────────────────────────────── */
+/* -- Source inventory -------------------------------------- */
 .source-summary-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -937,7 +947,7 @@ tbody tr.row-info     { border-left-color: var(--s-info); }
   white-space: nowrap;
 }
 
-/* ── JSON modal ──────────────────────────────────────────── */
+/* -- JSON modal -------------------------------------------- */
 dialog {
   width: min(92vw, 920px);
   border: 1px solid var(--border);
@@ -985,7 +995,7 @@ pre {
   word-break: break-all;
 }
 
-/* ── Status grid ─────────────────────────────────────────── */
+/* -- Status grid ------------------------------------------- */
 .status-grid {
   display: grid;
   gap: 8px;
@@ -1001,7 +1011,7 @@ pre {
   font-size: 13px;
 }
 
-/* ── API health grid ─────────────────────────────────────── */
+/* -- API health grid --------------------------------------- */
 .api-health-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1027,7 +1037,7 @@ pre {
   color: var(--text-muted);
 }
 
-/* ── Connection status card ──────────────────────────────── */
+/* -- Connection status card -------------------------------- */
 .conn-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -1045,7 +1055,7 @@ pre {
 
 .conn-status-text { font-size: 15px; font-weight: 700; }
 
-/* ── Monospace / code ────────────────────────────────────── */
+/* -- Monospace / code -------------------------------------- */
 .mono { font-family: "IBM Plex Mono", "Fira Code", "Consolas", monospace; font-size: 12px; }
 
 code {
@@ -1057,7 +1067,7 @@ code {
   border: 1px solid var(--border);
 }
 
-/* ── Top messages in source card ─────────────────────────── */
+/* -- Top messages in source card --------------------------- */
 .top-messages {
   margin: 4px 0 0;
   padding-left: 18px;
@@ -1065,7 +1075,7 @@ code {
   color: var(--text-muted);
 }
 
-/* ── Info row in settings / forwarding ───────────────────── */
+/* -- Info row in settings / forwarding --------------------- */
 .info-row {
   display: flex;
   justify-content: space-between;
@@ -1096,7 +1106,7 @@ code {
   word-break: break-all;
 }
 
-/* ── Utilities ───────────────────────────────────────────── */
+/* -- Utilities --------------------------------------------- */
 .muted  { color: var(--text-muted); }
 .dim    { color: var(--text-dim); }
 .flex   { display: flex; }
@@ -1109,21 +1119,82 @@ code {
 .mb-10  { margin-bottom: 10px; }
 .mb-14  { margin-bottom: 14px; }
 
-/* ── Responsive ──────────────────────────────────────────── */
+/* -- Responsive -------------------------------------------- */
 @media (max-width: 900px) {
   :root { --sidebar-w: 50px; }
   .tabs button .nav-label { display: none; }
   .sidebar-section-label  { display: none; }
   .sidebar-footer-item span { display: none; }
   main { padding: 14px 16px 24px; }
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .page-header-right {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .toolbar label input,
+  .toolbar label select {
+    width: min(100%, 220px) !important;
+  }
 }
 
 @media (max-width: 680px) {
-  :root { --sidebar-w: 0px; }
-  .sidebar { display: none; }
-  .topbar  { padding: 0 12px; }
+  body { overflow: auto; }
+  .app-shell {
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidebar {
+    width: 100%;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .tabs {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    padding: 6px 8px;
+    min-width: max-content;
+  }
+  .tabs button {
+    border-left: 1px solid var(--border);
+    border-radius: var(--r-md);
+    flex: 0 0 auto;
+    width: auto;
+  }
+  .tabs button .nav-label { display: inline; }
+  .tabs button .nav-icon { display: none; }
+  .sidebar-footer { display: none; }
+  .topbar  {
+    height: auto;
+    min-height: var(--topbar-h);
+    padding: 8px 12px;
+    flex-wrap: wrap;
+  }
+  .topbar-sep { display: none; }
+  .topbar-chips {
+    width: 100%;
+    margin-left: 0;
+  }
   .brand-text p { display: none; }
   .topbar-chips .chip:not(#health-pill):not(#rate-pill) { display: none; }
+  .grid, .dashboard-grid, .metric-grid { grid-template-columns: 1fr; }
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .toolbar label input,
+  .toolbar label select,
+  .toolbar button,
+  .actionbar button {
+    width: 100% !important;
+  }
   .source-card-header, .source-group-head { flex-direction: column; align-items: flex-start; }
   .source-body  { grid-template-columns: 1fr; }
   .two-col      { grid-template-columns: 1fr; }

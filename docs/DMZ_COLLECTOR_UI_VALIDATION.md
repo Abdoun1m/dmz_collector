@@ -7,6 +7,9 @@ go test ./internal/ingest ./internal/api
 go test ./...
 go build ./cmd/dmz-collector
 node --check web/app.js
+npm install
+npx playwright install chromium
+npm run test:ui
 ```
 
 ## Run Locally
@@ -52,8 +55,9 @@ Verify `config/forwarding` does not expose `splunk_hec_token`.
 
 - Dashboard loads KPIs, distribution panels, and timeline without mock data.
 - Events filters work for source type, severity, category, asset, search, and decision.
+- Events filters keep focus and typed values during background refresh.
 - Event rows open raw/tags previews and JSON modal.
-- Copy JSON button copies modal content.
+- Copy JSON button copies modal content or displays a browser clipboard failure.
 - SSE status shows connected/offline; pause/resume stops live table mutation.
 - Sources filters and visibility toggles work.
 - Source detail opens a JSON modal.
@@ -62,6 +66,7 @@ Verify `config/forwarding` does not expose `splunk_hec_token`.
 - Forwarding test reports success or displays the backend error.
 - Rules page clearly shows read-only rule/filter state.
 - Settings page shows live runtime paths and limitations.
+- Narrow viewport keeps the health chip, core event controls, and tab content usable.
 
 ## Jump Syslog Validation
 
