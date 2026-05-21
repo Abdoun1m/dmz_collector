@@ -69,6 +69,74 @@ func TestNormalizeSyslogJumphostUnknownAccepted(t *testing.T) {
 	}
 }
 
+func TestNormalizeSyslogJumphostAcceptedCertificateID(t *testing.T) {
+	line := `<38>1 2026-05-20T15:36:00Z kali labshock_jumphost 123 - - Accepted certificate ID "vault-jumpadmin-123" signed by RSA CA`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_cert_accepted" || ev.EventCategory != "access_control" || ev.Severity != "info" {
+		t.Fatalf("unexpected certificate classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+}
+
+func TestNormalizeSyslogJumphostInvalidUserPreauthClose(t *testing.T) {
+	line := `<38>1 2026-05-20T15:37:00Z kali labshock_jumphost 123 - - Connection closed by invalid user jumpadmin 192.168.10.249 port 47990 [preauth]`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_invalid_user" || ev.EventCategory != "access_control" || ev.Severity != "warning" {
+		t.Fatalf("unexpected invalid-user close classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+}
+
+func TestNormalizeSyslogJumphostAccountLocked(t *testing.T) {
+	line := `<38>1 2026-05-20T15:38:00Z kali labshock_jumphost 123 - - User jumpadmin not allowed because account is locked`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_account_locked" || ev.EventCategory != "access_control" || ev.Severity != "warning" {
+		t.Fatalf("unexpected account-locked classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Tags["alert_candidate"] != true || ev.Tags["high_value"] != true {
+		t.Fatalf("expected alert/high-value account lock, got %#v", ev.Tags)
+	}
+}
+
+func TestNormalizeSyslogJumphostHostKeyMismatch(t *testing.T) {
+	line := `<38>1 2026-05-20T15:39:00Z kali labshock_jumphost 123 - - Unable to negotiate with 192.168.10.249 port 33956: no matching host key type found`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_hostkey_mismatch" || ev.EventCategory != "security" || ev.Severity != "warning" {
+		t.Fatalf("unexpected host-key classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Tags["alert_candidate"] != true || ev.Tags["high_value"] != true {
+		t.Fatalf("expected alert/high-value host-key mismatch, got %#v", ev.Tags)
+	}
+}
+
+func TestNormalizeSyslogJumphostDisconnectedFromUser(t *testing.T) {
+	line := `<38>1 2026-05-20T15:40:00Z kali labshock_jumphost 123 - - Disconnected from user jumpadmin 192.168.10.249 port 47990`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_session_closed_user" || ev.EventCategory != "session" || ev.Severity != "info" {
+		t.Fatalf("unexpected disconnected-user classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+}
+
+func TestNormalizeSyslogJumphostUserChildNoise(t *testing.T) {
+	line := `<38>1 2026-05-20T15:41:00Z kali labshock_jumphost 123 - - User child is on pid 95`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_event_unknown" {
+		t.Fatalf("expected noise to remain unknown, got %#v", ev)
+	}
+	if ev.Tags["low_value"] != true || ev.Tags["collector_decision_hint"] != "sample" {
+		t.Fatalf("expected low-value sample tags, got %#v", ev.Tags)
+	}
+}
+
+func TestNormalizeSyslogJumphostConnectionStarted(t *testing.T) {
+	line := `<38>1 2026-05-20T15:42:00Z kali labshock_jumphost 123 - - Connection from 192.168.10.249 port 47990 on 192.168.10.5 port 22`
+	ev := normalizeSyslogLine(line, "192.168.10.5:514")
+	if ev.Message != "jump_connection_started" || ev.EventCategory != "access_control" || ev.Severity != "info" {
+		t.Fatalf("unexpected connection-start classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Tags["src_ip"] != "192.168.10.249" || ev.Tags["src_port"] != "47990" {
+		t.Fatalf("expected connection metadata, got %#v", ev.Tags)
+	}
+}
+
 func TestNormalizeSyslogNonJumphostStillFirewall(t *testing.T) {
 	line := `<38>1 2026-05-20T15:35:00Z opnsense filterlog 123 - - block in on em0`
 	ev := normalizeSyslogLine(line, "192.168.10.254:514")

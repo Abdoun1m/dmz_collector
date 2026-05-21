@@ -29,6 +29,7 @@ var (
 	jumphostClosedPreauthRe       = regexp.MustCompile(`(?i)Connection closed by ([^\s]+) port ([0-9]+).*preauth`)
 	jumphostSessionOpenedRe       = regexp.MustCompile(`(?i)session opened for user ([^\s]+)`)
 	jumphostSessionClosedRe       = regexp.MustCompile(`(?i)session closed for user ([^\s]+)`)
+	jumphostConnectionFromRe      = regexp.MustCompile(`(?i)Connection from ([^\s]+) port ([0-9]+)`)
 )
 
 type jumphostClassification struct {
@@ -300,7 +301,10 @@ func normalizeJumphostMessage(v string) string {
 		"jump_mfa_success", "jump_mfa_failed", "jump_event_unknown",
 		"jump_cert_login_success", "jump_invalid_user", "jump_preauth_connection_closed",
 		"jump_forward_denied", "jump_session_open", "jump_session_close",
-		"jump_password_auth_disabled", "jump_bastion_policy_applied":
+		"jump_password_auth_disabled", "jump_bastion_policy_applied",
+		"jump_cert_accepted", "jump_pubkey_postponed", "jump_hostkey_mismatch",
+		"jump_session_disconnected", "jump_session_closed_user", "jump_account_locked",
+		"jump_connection_started":
 		return msg
 	default:
 		return ""
@@ -310,16 +314,32 @@ func normalizeJumphostMessage(v string) string {
 func messageFromJumphostText(text string) string {
 	lower := strings.ToLower(text)
 	switch {
+	case strings.Contains(lower, "accepted certificate id"):
+		return "jump_cert_accepted"
+	case strings.Contains(lower, "postponed publickey for"):
+		return "jump_pubkey_postponed"
+	case strings.Contains(lower, "unable to negotiate with") && strings.Contains(lower, "no matching host key type"):
+		return "jump_hostkey_mismatch"
 	case jumphostAcceptedKeyWithCertRe.MatchString(text):
 		return "jump_cert_login_success"
 	case jumphostAcceptedKeyRe.MatchString(text):
 		return "jump_login_success"
 	case jumphostFailedAuthRe.MatchString(text):
 		return "jump_login_failed"
+	case strings.Contains(lower, "connection closed by invalid user"):
+		return "jump_invalid_user"
 	case jumphostInvalidUserRe.MatchString(text):
 		return "jump_invalid_user"
+	case strings.Contains(lower, "not allowed because account is locked"):
+		return "jump_account_locked"
 	case jumphostClosedPreauthRe.MatchString(text):
 		return "jump_preauth_connection_closed"
+	case jumphostConnectionFromRe.MatchString(text):
+		return "jump_connection_started"
+	case strings.Contains(lower, "received disconnect from"):
+		return "jump_session_disconnected"
+	case strings.Contains(lower, "disconnected from user"):
+		return "jump_session_closed_user"
 	case strings.Contains(lower, "open failed") || strings.Contains(lower, "administratively prohibited") ||
 		strings.Contains(lower, "permitopen") && strings.Contains(lower, "den") ||
 		strings.Contains(lower, "forward denied"):
@@ -348,7 +368,7 @@ func messageFromJumphostText(text string) string {
 		return "jump_session_opened"
 	case strings.Contains(lower, "session closed"):
 		return "jump_session_closed"
-	case strings.Contains(lower, "logout") || strings.Contains(lower, "disconnected from user"):
+	case strings.Contains(lower, "logout"):
 		return "jump_logout"
 	case strings.Contains(lower, "heartbeat"):
 		return "jump_heartbeat"
@@ -359,13 +379,15 @@ func messageFromJumphostText(text string) string {
 
 func classifyJumphostMessage(message string) jumphostClassification {
 	switch message {
-	case "jump_login_attempt", "jump_login_success", "jump_cert_login_success", "jump_mfa_success":
+	case "jump_login_attempt", "jump_login_success", "jump_cert_login_success", "jump_mfa_success",
+		"jump_cert_accepted", "jump_pubkey_postponed", "jump_connection_started":
 		return jumphostClassification{Category: "access_control", Severity: "info"}
-	case "jump_login_failed", "jump_invalid_user", "jump_mfa_failed":
+	case "jump_login_failed", "jump_invalid_user", "jump_mfa_failed", "jump_account_locked":
 		return jumphostClassification{Category: "access_control", Severity: "warning"}
-	case "jump_logout", "jump_session_opened", "jump_session_closed", "jump_session_open", "jump_session_close", "jump_preauth_connection_closed":
+	case "jump_logout", "jump_session_opened", "jump_session_closed", "jump_session_open", "jump_session_close",
+		"jump_preauth_connection_closed", "jump_session_disconnected", "jump_session_closed_user":
 		return jumphostClassification{Category: "session", Severity: "info"}
-	case "jump_sudo_executed", "jump_sudo_failed", "jump_forward_denied":
+	case "jump_sudo_executed", "jump_sudo_failed", "jump_forward_denied", "jump_hostkey_mismatch":
 		return jumphostClassification{Category: "security", Severity: "warning"}
 	case "jump_unauthorized_zone_access":
 		return jumphostClassification{Category: "security", Severity: "critical"}
@@ -413,7 +435,7 @@ func riskForJumphost(message, category, severity string) string {
 
 func jumphostAlertCandidate(message, category, severity string) bool {
 	switch message {
-	case "jump_login_failed", "jump_invalid_user", "jump_sudo_executed", "jump_sudo_failed", "jump_unauthorized_zone_access", "jump_mfa_failed", "jump_forward_denied":
+	case "jump_login_failed", "jump_invalid_user", "jump_sudo_executed", "jump_sudo_failed", "jump_unauthorized_zone_access", "jump_mfa_failed", "jump_forward_denied", "jump_hostkey_mismatch", "jump_account_locked":
 		return true
 	}
 	return severity == "warning" || severity == "error" || severity == "critical" || category == "security"
@@ -498,6 +520,11 @@ func fieldsFromJumphostSyslogMessage(message string) map[string]any {
 		out["src_port"] = m[2]
 		return out
 	}
+	if m := jumphostConnectionFromRe.FindStringSubmatch(message); len(m) >= 3 {
+		out["src_ip"] = m[1]
+		out["src_port"] = m[2]
+		return out
+	}
 	for _, re := range []*regexp.Regexp{jumphostSessionOpenedRe, jumphostSessionClosedRe} {
 		if m := re.FindStringSubmatch(message); len(m) >= 2 {
 			out["user"] = m[1]
@@ -509,7 +536,7 @@ func fieldsFromJumphostSyslogMessage(message string) map[string]any {
 
 func isJumphostNoise(message string) bool {
 	lower := strings.ToLower(message)
-	for _, needle := range []string{"crond", "run-parts", "periodic", "wakeup dt", "file root", "user root pid", "child running /bin/sh"} {
+	for _, needle := range []string{"crond", "run-parts", "periodic", "wakeup dt", "file root", "user root pid", "child running /bin/sh", "user child is on pid"} {
 		if strings.Contains(lower, needle) {
 			return true
 		}
@@ -519,7 +546,7 @@ func isJumphostNoise(message string) bool {
 
 func isJumphostHighValue(message string) bool {
 	switch message {
-	case "jump_cert_login_success", "jump_forward_denied":
+	case "jump_cert_login_success", "jump_forward_denied", "jump_account_locked", "jump_hostkey_mismatch":
 		return true
 	default:
 		return false
