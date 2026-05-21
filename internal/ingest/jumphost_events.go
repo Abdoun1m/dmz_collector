@@ -24,12 +24,18 @@ const (
 var (
 	jumphostAcceptedKeyWithCertRe = regexp.MustCompile(`(?i)Accepted publickey for ([^\s]+) from ([^\s]+) port ([0-9]+).*CERT ID ([^\s]+)`)
 	jumphostAcceptedKeyRe         = regexp.MustCompile(`(?i)Accepted publickey for ([^\s]+) from ([^\s]+) port ([0-9]+)`)
+	jumphostAcceptedCertIDRe      = regexp.MustCompile(`(?i)Accepted certificate ID "([^"]+)"(?: \(serial ([^)]+)\))? signed by [A-Z0-9]+ CA (SHA256:[^\s]+)`)
+	jumphostPostponedPublickeyRe  = regexp.MustCompile(`(?i)Postponed publickey for ([^\s]+) from ([^\s]+) port ([0-9]+)`)
 	jumphostFailedAuthRe          = regexp.MustCompile(`(?i)Failed (?:publickey|password) for (?:invalid user )?([^\s]+) from ([^\s]+) port ([0-9]+)`)
 	jumphostInvalidUserRe         = regexp.MustCompile(`(?i)Invalid user ([^\s]+) from ([^\s]+) port ([0-9]+)`)
+	jumphostClosedInvalidUserRe   = regexp.MustCompile(`(?i)Connection closed by invalid user ([^\s]+) ([^\s]+) port ([0-9]+)`)
 	jumphostClosedPreauthRe       = regexp.MustCompile(`(?i)Connection closed by ([^\s]+) port ([0-9]+).*preauth`)
+	jumphostReceivedDisconnectRe  = regexp.MustCompile(`(?i)Received disconnect from ([^\s]+) port ([0-9]+)`)
+	jumphostDisconnectedUserRe    = regexp.MustCompile(`(?i)Disconnected from user ([^\s]+) ([^\s]+) port ([0-9]+)`)
 	jumphostSessionOpenedRe       = regexp.MustCompile(`(?i)session opened for user ([^\s]+)`)
 	jumphostSessionClosedRe       = regexp.MustCompile(`(?i)session closed for user ([^\s]+)`)
 	jumphostConnectionFromRe      = regexp.MustCompile(`(?i)Connection from ([^\s]+) port ([0-9]+)`)
+	jumphostHostKeyMismatchRe     = regexp.MustCompile(`(?i)Unable to negotiate with ([^\s]+) port ([0-9]+):.*no matching host key type found(?:\. Their offer: (.*?)(?: \[|$))?`)
 )
 
 type jumphostClassification struct {
@@ -106,6 +112,17 @@ func NormalizeJumphostEvent(raw []byte) (event.Event, error) {
 	message := normalizeJumphostMessage(firstString(rec, "message", "event_type", "type", "action"))
 	if message == "" {
 		message = messageFromJumphostText(firstString(rawFields, "message", "msg", "log_message", "detail", "raw"))
+	}
+	if line := sshLineFromJumphostPayload(rec, rawFields); line != "" {
+		for k, v := range fieldsFromJumphostSyslogMessage(line) {
+			rawFields[k] = v
+		}
+		ensureJumphostRawField(rec, rawFields, "parser_hint", "sshd_auth_log")
+		if message == "" || message == "jump_event_unknown" {
+			if parsed := messageFromJumphostText(line); parsed != "" && parsed != "jump_event_unknown" {
+				message = parsed
+			}
+		}
 	}
 	if message == "" {
 		message = "jump_event_unknown"
@@ -219,7 +236,7 @@ func buildJumphostEvent(rec, rawFields map[string]any, class jumphostClassificat
 	if class.AlertCandidate {
 		tags["alert_candidate"] = true
 	}
-	if boolValue(rec["low_value"]) || isJumphostNoise(firstString(rawFields, "syslog_message", "detail", "log_message")) {
+	if boolValue(rec["low_value"]) || isJumphostNoise(firstString(rawFields, "syslog_message", "detail", "log_message", "line")) {
 		tags["low_value"] = true
 		tags["collector_decision_hint"] = "sample"
 	}
@@ -289,7 +306,67 @@ func jumphostRawFields(rec map[string]any) map[string]any {
 var jumphostMetadataKeys = []string{
 	"src_ip", "dst_ip", "user", "sudo_command", "target_zone", "session_id",
 	"duration_seconds", "mfa_method", "tty", "pam_service", "remote_addr",
-	"src_port", "cert_id",
+	"src_port", "cert_id", "cert_serial", "ca_fingerprint", "offered_algorithms",
+	"parser_hint",
+}
+
+func sshLineFromJumphostPayload(rec, rawFields map[string]any) string {
+	for _, candidate := range []string{
+		firstString(rawFields, "line"),
+		firstNestedString(rawFields, "raw", "line"),
+		firstNestedString(rec, "payload", "raw", "line"),
+		firstNestedString(rec, "raw", "raw", "line"),
+		stringAny(rec["raw"]),
+		firstString(rawFields, "raw", "detail", "log_message", "message"),
+	} {
+		line := strings.TrimSpace(strings.TrimRight(candidate, "\r\n"))
+		if line != "" && looksLikeJumphostSSHLine(line) {
+			return line
+		}
+	}
+	return ""
+}
+
+func firstNestedString(root map[string]any, path ...string) string {
+	var current any = root
+	for _, key := range path {
+		m := mapAny(current)
+		if len(m) == 0 {
+			return ""
+		}
+		current = m[key]
+	}
+	return stringAny(current)
+}
+
+func looksLikeJumphostSSHLine(line string) bool {
+	lower := strings.ToLower(line)
+	for _, needle := range []string{
+		"accepted certificate id", "postponed publickey for", "unable to negotiate with",
+		"received disconnect from", "disconnected from user", "connection from ",
+		"accepted publickey for", "failed publickey for", "failed password for",
+		"invalid user", "connection closed by invalid user", "not allowed because account is locked",
+		"user child is on pid",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureJumphostRawField(rec, rawFields map[string]any, key string, value any) {
+	if _, ok := rawFields[key]; !ok {
+		rawFields[key] = value
+	}
+	rawMap := mapAny(rec["raw"])
+	if len(rawMap) == 0 {
+		return
+	}
+	if _, ok := rawMap[key]; !ok {
+		rawMap[key] = value
+		rec["raw"] = rawMap
+	}
 }
 
 func normalizeJumphostMessage(v string) string {
@@ -445,7 +522,7 @@ func protocolForJumphost(message string, rec, rawFields map[string]any) string {
 	blob := strings.ToLower(strings.Join([]string{
 		message,
 		firstString(rec, "program", "process", "service"),
-		firstString(rawFields, "program", "process", "service", "detail", "log_message"),
+		firstString(rawFields, "program", "process", "service", "detail", "log_message", "line"),
 	}, " "))
 	if strings.Contains(blob, "ssh") || strings.Contains(blob, "sshd") || strings.Contains(blob, "pam") ||
 		strings.Contains(message, "login") || strings.Contains(message, "session") || strings.Contains(message, "logout") ||
@@ -504,6 +581,28 @@ func looksLikeJumphostSecret(value string) bool {
 
 func fieldsFromJumphostSyslogMessage(message string) map[string]any {
 	out := map[string]any{}
+	if m := jumphostAcceptedCertIDRe.FindStringSubmatch(message); len(m) >= 4 {
+		out["cert_id"] = m[1]
+		if m[2] != "" {
+			out["cert_serial"] = m[2]
+		}
+		out["ca_fingerprint"] = m[3]
+		return out
+	}
+	if m := jumphostPostponedPublickeyRe.FindStringSubmatch(message); len(m) >= 4 {
+		out["user"] = m[1]
+		out["src_ip"] = m[2]
+		out["src_port"] = m[3]
+		return out
+	}
+	if m := jumphostHostKeyMismatchRe.FindStringSubmatch(message); len(m) >= 3 {
+		out["src_ip"] = m[1]
+		out["src_port"] = m[2]
+		if len(m) >= 4 && strings.TrimSpace(m[3]) != "" {
+			out["offered_algorithms"] = strings.TrimSpace(m[3])
+		}
+		return out
+	}
 	for _, re := range []*regexp.Regexp{jumphostAcceptedKeyWithCertRe, jumphostAcceptedKeyRe, jumphostFailedAuthRe, jumphostInvalidUserRe} {
 		if m := re.FindStringSubmatch(message); len(m) >= 4 {
 			out["user"] = m[1]
@@ -515,9 +614,26 @@ func fieldsFromJumphostSyslogMessage(message string) map[string]any {
 			return out
 		}
 	}
+	if m := jumphostClosedInvalidUserRe.FindStringSubmatch(message); len(m) >= 4 {
+		out["user"] = m[1]
+		out["src_ip"] = m[2]
+		out["src_port"] = m[3]
+		return out
+	}
 	if m := jumphostClosedPreauthRe.FindStringSubmatch(message); len(m) >= 3 {
 		out["src_ip"] = m[1]
 		out["src_port"] = m[2]
+		return out
+	}
+	if m := jumphostReceivedDisconnectRe.FindStringSubmatch(message); len(m) >= 3 {
+		out["src_ip"] = m[1]
+		out["src_port"] = m[2]
+		return out
+	}
+	if m := jumphostDisconnectedUserRe.FindStringSubmatch(message); len(m) >= 4 {
+		out["user"] = m[1]
+		out["src_ip"] = m[2]
+		out["src_port"] = m[3]
 		return out
 	}
 	if m := jumphostConnectionFromRe.FindStringSubmatch(message); len(m) >= 3 {

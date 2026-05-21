@@ -98,3 +98,132 @@ func TestNormalizeJumphostRedaction(t *testing.T) {
 		t.Fatalf("expected redacted values, raw=%s tags=%#v", ev.Raw, ev.Tags)
 	}
 }
+
+func TestNormalizeJumphostUnknownMessageReparsesRawLine(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		wantMsg    string
+		wantCat    string
+		wantSev    string
+		wantFields map[string]any
+	}{
+		{
+			name:    "accepted certificate id",
+			line:    `Accepted certificate ID "vault-userpass-otadmin-86f31e305c1f80dd4ffe4148347ca0c39b50e26aa3d2d0cf66b1e82d6c42aead" (serial 11876948199668790762) signed by RSA CA SHA256:M3GZglFNuvC8ceE/raXQh702jwNYvWeDW2gZucLiFUk via /config/sshd/vault-ssh-ca.pub`,
+			wantMsg: "jump_cert_accepted",
+			wantCat: "access_control",
+			wantSev: "info",
+			wantFields: map[string]any{
+				"cert_id":        "vault-userpass-otadmin-86f31e305c1f80dd4ffe4148347ca0c39b50e26aa3d2d0cf66b1e82d6c42aead",
+				"cert_serial":    "11876948199668790762",
+				"ca_fingerprint": "SHA256:M3GZglFNuvC8ceE/raXQh702jwNYvWeDW2gZucLiFUk",
+			},
+		},
+		{
+			name:    "postponed publickey",
+			line:    `Postponed publickey for jumpadmin from 192.168.10.249 port 56714 ssh2 [preauth]`,
+			wantMsg: "jump_pubkey_postponed",
+			wantCat: "access_control",
+			wantSev: "info",
+			wantFields: map[string]any{
+				"user":     "jumpadmin",
+				"src_ip":   "192.168.10.249",
+				"src_port": "56714",
+			},
+		},
+		{
+			name:    "received disconnect",
+			line:    `Received disconnect from 192.168.10.249 port 56714:11: disconnected by user`,
+			wantMsg: "jump_session_disconnected",
+			wantCat: "session",
+			wantSev: "info",
+			wantFields: map[string]any{
+				"src_ip":   "192.168.10.249",
+				"src_port": "56714",
+			},
+		},
+		{
+			name:    "disconnected from user",
+			line:    `Disconnected from user jumpadmin 192.168.10.249 port 56714`,
+			wantMsg: "jump_session_closed_user",
+			wantCat: "session",
+			wantSev: "info",
+			wantFields: map[string]any{
+				"user":     "jumpadmin",
+				"src_ip":   "192.168.10.249",
+				"src_port": "56714",
+			},
+		},
+		{
+			name:    "host key mismatch",
+			line:    `Unable to negotiate with 192.168.10.249 port 46522: no matching host key type found. Their offer: ecdsa-sha2-nistp256 [preauth]`,
+			wantMsg: "jump_hostkey_mismatch",
+			wantCat: "security",
+			wantSev: "warning",
+			wantFields: map[string]any{
+				"src_ip":             "192.168.10.249",
+				"src_port":           "46522",
+				"offered_algorithms": "ecdsa-sha2-nistp256",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev, err := NormalizeJumphostEvent(mustJSON(map[string]any{
+				"message":        "jump_event_unknown",
+				"event_category": "jumphost",
+				"severity":       "info",
+				"source":         "jumphost_internal_sshd_log",
+				"raw": map[string]any{
+					"forwarder":   "jumphost-internal-sshd-forwarder",
+					"line":        tt.line + "\r",
+					"parser_hint": "sshd_auth_log",
+				},
+				"tags": map[string]any{
+					"component":            "jumphost",
+					"normalization_source": "jumphost_internal_forwarder",
+					"risk_level":           "LOW",
+				},
+			}))
+			if err != nil {
+				t.Fatalf("NormalizeJumphostEvent returned error: %v", err)
+			}
+			if ev.Message != tt.wantMsg || ev.EventCategory != tt.wantCat || ev.Severity != tt.wantSev {
+				t.Fatalf("unexpected classification: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+			}
+			if ev.Tags["risk_level"] != riskForJumphost(tt.wantMsg, tt.wantCat, tt.wantSev) {
+				t.Fatalf("expected mapped risk level, got %#v", ev.Tags["risk_level"])
+			}
+			if ev.Tags["parser_hint"] != "sshd_auth_log" {
+				t.Fatalf("expected parser hint to be preserved/promoted, got %#v", ev.Tags)
+			}
+			if !strings.Contains(ev.Raw, `"line"`) || !strings.Contains(ev.Raw, `sshd_auth_log`) {
+				t.Fatalf("expected raw line and parser hint to be preserved, got %s", ev.Raw)
+			}
+			for key, want := range tt.wantFields {
+				if ev.Tags[key] != want {
+					t.Fatalf("expected %s=%#v, got %#v in tags %#v", key, want, ev.Tags[key], ev.Tags)
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeJumphostKeepsAlreadyNormalizedMessage(t *testing.T) {
+	ev, err := NormalizeJumphostEvent(mustJSON(map[string]any{
+		"message":        "jump_login_success",
+		"event_category": "access_control",
+		"severity":       "info",
+		"raw": map[string]any{
+			"line": "Accepted certificate ID \"vault-test\" signed by RSA CA SHA256:abc",
+		},
+	}))
+	if err != nil {
+		t.Fatalf("NormalizeJumphostEvent returned error: %v", err)
+	}
+	if ev.Message != "jump_login_success" {
+		t.Fatalf("expected already-normalized message to be preserved, got %s", ev.Message)
+	}
+}
