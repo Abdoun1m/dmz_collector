@@ -26,3 +26,5 @@ go.work.sum
 
 # env file
 .env
+.claude/worktrees/stupefied-perlman-a591b5/
+.claude/worktrees/dazzling-euclid-c4955f/
