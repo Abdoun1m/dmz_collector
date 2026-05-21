@@ -89,7 +89,13 @@ func (a *API) Run(ctx context.Context) error {
 
 	sub, err := fs.Sub(webassets.FS, ".")
 	if err == nil {
-		mux.Handle("/", http.FileServer(http.FS(sub)))
+		fileServer := http.FileServer(http.FS(sub))
+		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+			fileServer.ServeHTTP(w, r)
+		}))
 	}
 
 	s := &http.Server{

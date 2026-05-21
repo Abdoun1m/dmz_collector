@@ -13,6 +13,7 @@ This document describes the live backend contract used by the embedded DMZ Colle
 
 - Framework: Go `net/http`.
 - Static UI: served from embedded `web` filesystem.
+- Static UI assets are served with no-cache headers so rebuilt containers do not leave operators on stale JavaScript or CSS.
 - Storage: append-only JSONL events and spool.
 - Streaming: server-sent events at `/events/stream`.
 

@@ -47,9 +47,11 @@ curl -s http://127.0.0.1:9000/forwarding/status | jq
 curl -s http://127.0.0.1:9000/config/forwarding | jq
 curl -s http://127.0.0.1:9000/config/rules | jq
 curl -s http://127.0.0.1:9000/filter/config | jq
+curl -I http://127.0.0.1:9000/app.js
 ```
 
 Verify `config/forwarding` does not expose `splunk_hec_token`.
+Verify `/app.js` returns `Cache-Control: no-store, no-cache, must-revalidate`.
 
 ## UI Checklist
 
