@@ -46,25 +46,22 @@ func TestSeedConfiguredSourcesMapsDMZServices(t *testing.T) {
 	c.SeedConfiguredSources(config.DefaultSources())
 	defaultSnap := c.Snapshot(VisibilityOptions{})
 	for _, rec := range defaultSnap.Sources {
-		if rec.Name == "InfluxDB" || rec.Name == "OT Collector" {
+		if rec.Name == "InfluxDB" || rec.Name == "OT Collector" || rec.Name == "Firewall Future" {
 			t.Fatalf("did not expect internal source in default snapshot: %#v", rec)
 		}
 	}
 	snap := c.Snapshot(VisibilityOptions{IncludeInternal: true, IncludeDisabled: true, IncludeDirectSIEM: true})
-	var influx, collector SourceRecord
+	var influx SourceRecord
 	for _, rec := range snap.Sources {
 		switch rec.Name {
 		case "InfluxDB":
 			influx = rec
-		case "OT Collector":
-			collector = rec
+		case "OT Collector", "Firewall Future":
+			t.Fatalf("did not expect support-only source in visible catalog: %#v", rec)
 		}
 	}
 	if influx.SourceType != "influxdb" || influx.Group != "DMZ Services" || influx.Zone != "DMZ" {
 		t.Fatalf("unexpected InfluxDB record: %#v", influx)
-	}
-	if collector.SourceType != "collector" || collector.Group != "DMZ Services" || collector.Zone != "DMZ" {
-		t.Fatalf("unexpected OT Collector record: %#v", collector)
 	}
 	visible := c.Snapshot(VisibilityOptions{IncludeInternal: true, IncludeDisabled: true, IncludeDirectSIEM: true})
 	if visible.VisibleSources == 0 {

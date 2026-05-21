@@ -50,6 +50,22 @@ test("stream controls render and pause/resume", async ({ page }) => {
   await expect(page.locator("#stream-toggle")).toHaveText("Pause");
 });
 
+test("queue and HEC pages show merged forwarding counters", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('button[data-tab="queue"]').click();
+  await expect(page.getByRole("heading", { name: "Forwarding Queue" })).toBeVisible();
+  await expect(page.locator("#tab-queue")).toContainText("HEC/syslog success");
+  await expect(page.locator("#tab-queue")).toContainText("splunk status 503");
+
+  await page.locator('button[data-tab="forwarding"]').click();
+  await expect(page.getByRole("heading", { name: "SIEM Forwarding" })).toBeVisible();
+  await expect(page.locator("#tab-forwarding")).toContainText("splunk status 503");
+
+  await page.locator('button[data-tab="splunk"]').click();
+  await expect(page.getByRole("heading", { name: "SIEM / Routing Reference" })).toBeVisible();
+  await expect(page.locator("#tab-splunk")).toContainText("evt-critical-1");
+});
+
 test("all operator tabs render without crashing", async ({ page }) => {
   await page.goto("/");
   const tabs = [

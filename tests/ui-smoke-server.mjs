@@ -101,6 +101,15 @@ function handleApi(req, res) {
       warning_count: 0,
       source_count: 2,
       event_rate_per_second: 0.2,
+      spool_file: "/data/spool/events.jsonl",
+      splunk_enabled: true,
+      splunk_hec_url: "https://splunk.example:8088/services/collector",
+      splunk_success_count: 7,
+      splunk_failed_count: 1,
+      splunk_last_success_at: "2026-05-20T10:02:00Z",
+      splunk_last_failure_at: "2026-05-20T10:03:00Z",
+      splunk_last_error: "splunk status 503",
+      splunk_last_event_id: "evt-critical-1",
       by_severity: { critical: 1, info: 1 },
       by_category: { security: 1, access_control: 1 },
       by_source_type: { gds: 1, jumphost: 1 },
@@ -110,10 +119,10 @@ function handleApi(req, res) {
     return json(res, [{ hour: "10:00", count: 2 }]);
   }
   if (url.pathname === "/queue/status") {
-    return json(res, { queued: 1, forwarded: 7, failed: 0, paused: false, spool_file: "/data/spool/events.jsonl" });
+    return json(res, { queued: 1, forwarded: 0, failed: 0, paused: false, spool_file: "/data/spool/events.jsonl" });
   }
   if (url.pathname === "/forwarding/status") {
-    return json(res, { forwarded: 7, failed: 0, queued: 1, last_response: "200 OK" });
+    return json(res, { forwarded: 0, failed: 0, queued: 1, last_response: "" });
   }
   if (url.pathname === "/config/forwarding") {
     if (req.method === "POST") return json(res, { ok: true });

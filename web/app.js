@@ -223,6 +223,47 @@ function badge(value, prefix) {
   return `<span class="badge ${esc(p)}-${esc(v)}">${esc(value)}</span>`;
 }
 
+function numberValue(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+function textValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
+  }
+  return "";
+}
+
+function forwardingView() {
+  const q = state.queue || {};
+  const st = state.forwardingStatus || {};
+  const ss = state.statsSummary || {};
+  const cfg = state.forwarding || {};
+  return {
+    queued: numberValue(q.queued, st.queued, ss.queue?.queued),
+    forwarded: numberValue(st.forwarded, q.forwarded, ss.splunk_success_count, ss.queue?.forwarded),
+    failed: numberValue(st.failed, q.failed, ss.splunk_failed_count, ss.queue?.failed),
+    lastSuccess: textValue(q.last_success, st.last_success, ss.splunk_last_success_at, ss.queue?.last_success),
+    lastFailure: textValue(q.last_failure, st.last_failure, ss.splunk_last_failure_at, ss.queue?.last_failure),
+    lastResponse: textValue(st.last_response, ss.splunk_last_error, ss.splunk_last_event_id),
+    lastError: textValue(ss.splunk_last_error),
+    lastEventID: textValue(ss.splunk_last_event_id),
+    spoolFile: textValue(q.spool_file, ss.spool_file, cfg.spool_file),
+    eventsFile: textValue(q.events_file, ss.events_file),
+    paused: Boolean(q.paused || cfg.paused),
+    splunkEnabled: Boolean(cfg.splunk_enabled || ss.splunk_enabled),
+    splunkURL: textValue(cfg.splunk_hec_url, ss.splunk_hec_url),
+    splunkIndex: textValue(cfg.splunk_index, "ot_security"),
+    splunkSource: textValue(cfg.splunk_source, "labshock_dmz_collector"),
+    syslogEnabled: Boolean(cfg.syslog_forward_enabled),
+  };
+}
+
 function decisionBadge(decision) {
   const d = String(decision || "").toLowerCase();
   let cls = "action-unknown";
@@ -323,9 +364,8 @@ function renderHighValueFeed() {
 function renderDashboard() {
   const ss = state.statsSummary || {};
   const st = state.stats || {};
-  const q = state.queue || {};
   const fwd = state.forwarding || {};
-  const fwdSt = state.forwardingStatus || {};
+  const fv = forwardingView();
   const totalEvents = ss.total_events || st.total_events || st.total_received || 0;
   const eps = st.event_rate_per_second;
   const fwdEnabled = fwd.splunk_enabled || fwd.syslog_forward_enabled;
@@ -348,13 +388,13 @@ function renderDashboard() {
     <div class="section-head"><h3>Event Processing</h3></div>
     <div class="grid">
       ${statCard("Total Events", safe(totalEvents, 0), eps !== undefined ? `${eps} ev/s` : "", "red")}
-      ${statCard("Forwarded", safe(q.forwarded || fwdSt.forwarded, 0), fwd.splunk_hec_url ? "to SIEM" : "-", "cyan")}
-      ${statCard("Queued", safe(q.queued, 0), q.paused ? "forwarding paused" : "active", "")}
-      ${statCard("Failed", safe(q.failed || fwdSt.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "-", q.failed ? "warn" : "")}
+      ${statCard("Forwarded", safe(fv.forwarded, 0), fv.splunkURL ? "to SIEM" : "-", "cyan")}
+      ${statCard("Queued", safe(fv.queued, 0), fv.paused ? "forwarding paused" : "active", "")}
+      ${statCard("Failed", safe(fv.failed, 0), fv.lastFailure ? fmtTime(fv.lastFailure) : "-", fv.failed ? "warn" : "")}
       ${statCard("Critical", safe(ss.critical_count, 0), "events", "red")}
       ${statCard("Warning", safe(ss.warning_count, 0), "events", "warn")}
       ${statCard("Sources", safe(ss.source_count || st.source_count, 0), "registered", "info")}
-      ${statCard("Spool File", q.spool_file || fwd.spool_file || "-", q.queued ? `${q.queued} pending` : "empty", "purple")}
+      ${statCard("Spool File", fv.spoolFile || "-", fv.queued ? `${fv.queued} pending` : "empty", "purple")}
     </div>
 
     <div class="dashboard-grid">
@@ -806,6 +846,7 @@ function bindSourcesTab() {
 /* -- Queue --------------------------------------------------- */
 function renderQueue() {
   const q = state.queue || {};
+  const fv = forwardingView();
   document.getElementById("tab-queue").innerHTML = `
     ${errorBlock("queue")}${noticeBlock("queue")}
     <div class="page-header">
@@ -814,39 +855,47 @@ function renderQueue() {
         <p>Spool management and forwarding worker control</p>
       </div>
       <div class="page-header-right">
-        <span class="chip ${q.paused ? "chip-warn" : "chip-ok"}">
-          <span class="dot"></span>${q.paused ? "worker paused" : "worker active"}
+        <span class="chip ${fv.paused ? "chip-warn" : "chip-ok"}">
+          <span class="dot"></span>${fv.paused ? "worker paused" : "worker active"}
         </span>
       </div>
     </div>
 
     <div class="grid">
-      ${statCard("Queued", safe(q.queued, 0), q.paused ? "forwarding paused" : "pending dispatch", "")}
-      ${statCard("Forwarded", safe(q.forwarded, 0), "total", "cyan")}
-      ${statCard("Failed", safe(q.failed, 0), q.last_failure ? fmtTime(q.last_failure) : "-", q.failed ? "warn" : "")}
-      ${statCard("Last Success", "-", fmtTime(q.last_success), "ok")}
+      ${statCard("Queued", safe(fv.queued, 0), fv.paused ? "forwarding paused" : "pending dispatch", "")}
+      ${statCard("Forwarded", safe(fv.forwarded, 0), "HEC/syslog success", "cyan")}
+      ${statCard("Failed", safe(fv.failed, 0), fv.lastFailure ? fmtTime(fv.lastFailure) : "-", fv.failed ? "warn" : "")}
+      ${statCard("Last Success", fv.lastSuccess ? fmtTime(fv.lastSuccess) : "-", "forwarding worker", "ok")}
     </div>
 
     <div class="section-head" style="margin-top:16px"><h3>Spool</h3></div>
     <article class="card">
       <div class="info-row">
         <span class="info-key">Spool file</span>
-        <span class="info-val mono">${esc(q.spool_file || "-")}</span>
+        <span class="info-val mono">${esc(fv.spoolFile || "-")}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">Events file</span>
+        <span class="info-val mono">${esc(fv.eventsFile || "-")}</span>
       </div>
       <div class="info-row">
         <span class="info-key">Last failure</span>
-        <span class="info-val">${esc(fmtTime(q.last_failure) || "-")}</span>
+        <span class="info-val">${esc(fv.lastFailure ? fmtTime(fv.lastFailure) : "-")}</span>
       </div>
       <div class="info-row">
         <span class="info-key">Last success</span>
-        <span class="info-val">${esc(fmtTime(q.last_success) || "-")}</span>
+        <span class="info-val">${esc(fv.lastSuccess ? fmtTime(fv.lastSuccess) : "-")}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">Last HEC error</span>
+        <span class="info-val mono">${esc(fv.lastError || "-")}</span>
       </div>
     </article>
 
     <div class="toolbar actionbar" style="margin-top:14px">
       <button id="btn-flush" class="primary">&#8679; Flush spool</button>
-      <button id="btn-pause">${q.paused ? "Already paused" : "Pause forwarding"}</button>
-      <button id="btn-resume">${q.paused ? "Resume forwarding" : "Already active"}</button>
+      <button id="btn-pause">${fv.paused ? "Already paused" : "Pause forwarding"}</button>
+      <button id="btn-resume">${fv.paused ? "Resume forwarding" : "Already active"}</button>
       <button disabled title="Per-item retry is not implemented; use Flush spool to requeue pending records.">Retry failed</button>
     </div>
   `;
@@ -870,9 +919,9 @@ async function setPaused(paused) {
 /* -- Forwarding ---------------------------------------------- */
 function renderForwarding() {
   const cfg = state.forwarding || {};
-  const st = state.forwardingStatus || {};
+  const fv = forwardingView();
   const tokenPlaceholder = cfg.splunk_hec_token_set ? "********" : "";
-  const splunkOk = cfg.splunk_enabled && cfg.splunk_hec_url;
+  const splunkOk = fv.splunkEnabled && fv.splunkURL;
   const syslogOk = cfg.syslog_forward_enabled && cfg.syslog_forward_host;
 
   document.getElementById("tab-forwarding").innerHTML = `
@@ -894,12 +943,14 @@ function renderForwarding() {
         <span class="conn-status-text">${splunkOk ? "Splunk HEC Connected" : "Splunk HEC Not Configured"}</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:13px">
-        <div class="info-row"><span class="info-key">URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "-")}</span></div>
-        <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "-")}</span></div>
-        <div class="info-row"><span class="info-key">Source</span><span class="info-val mono">${esc(cfg.splunk_source || "-")}</span></div>
+        <div class="info-row"><span class="info-key">URL</span><span class="info-val mono">${esc(fv.splunkURL || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(fv.splunkIndex || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Source</span><span class="info-val mono">${esc(fv.splunkSource || "-")}</span></div>
         <div class="info-row"><span class="info-key">Token</span><span class="info-val">${cfg.splunk_hec_token_set ? "&#11044; set" : "not set"}</span></div>
         <div class="info-row"><span class="info-key">TLS Verify</span><span class="info-val">${cfg.splunk_verify_tls ? "yes" : "no"}</span></div>
-        <div class="info-row"><span class="info-key">Last response</span><span class="info-val mono">${esc(st.last_response || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Last response</span><span class="info-val mono">${esc(fv.lastResponse || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Last HEC error</span><span class="info-val mono">${esc(fv.lastError || "-")}</span></div>
+        <div class="info-row"><span class="info-key">Last event ID</span><span class="info-val mono">${esc(fv.lastEventID || "-")}</span></div>
       </div>
     </div>
 
@@ -937,10 +988,10 @@ function renderForwarding() {
 
     <div class="section-head"><h3>Forwarding Metrics</h3></div>
     <div class="metric-grid">
-      ${statCard("Forwarded", safe(st.forwarded, 0), "total", "cyan")}
-      ${statCard("Failed", safe(st.failed, 0), "-", st.failed ? "warn" : "")}
-      ${statCard("Queued", safe(st.queued, 0), "pending", "")}
-      ${statCard("Last Response", safe(st.last_response || "-", "-"), "HTTP status", "")}
+      ${statCard("Forwarded", safe(fv.forwarded, 0), "HEC/syslog success", "cyan")}
+      ${statCard("Failed", safe(fv.failed, 0), fv.lastFailure ? fmtTime(fv.lastFailure) : "-", fv.failed ? "warn" : "")}
+      ${statCard("Queued", safe(fv.queued, 0), "pending", "")}
+      ${statCard("Last Response", safe(fv.lastResponse || "-", "-"), "HTTP status / error", "")}
     </div>
 
     <div class="notice info" style="margin-top:16px">
@@ -1041,9 +1092,8 @@ function renderRules() {
 
 /* -- SIEM / Routing ------------------------------------------ */
 function renderSplunk() {
-  const st = state.forwardingStatus || {};
   const cfg = state.forwarding || {};
-  const q = state.queue || {};
+  const fv = forwardingView();
 
   document.getElementById("tab-splunk").innerHTML = `
     <div class="page-header">
@@ -1055,21 +1105,23 @@ function renderSplunk() {
 
     <div class="section-head"><h3>HEC Runtime Status</h3></div>
     <div class="grid">
-      ${statCard("Forwarded", safe(st.forwarded, 0), "total events sent", "cyan")}
-      ${statCard("Failed", safe(st.failed, 0), "forwarding errors", st.failed ? "warn" : "")}
-      ${statCard("Queued", safe(q.queued, 0), "pending in spool", "")}
-      ${statCard("Last Response", safe(st.last_response || "-", "-"), "HTTP status from SIEM", "")}
+      ${statCard("Forwarded", safe(fv.forwarded, 0), "total events sent", "cyan")}
+      ${statCard("Failed", safe(fv.failed, 0), "forwarding errors", fv.failed ? "warn" : "")}
+      ${statCard("Queued", safe(fv.queued, 0), "pending in spool", "")}
+      ${statCard("Last Response", safe(fv.lastResponse || "-", "-"), "HTTP status / error", "")}
     </div>
 
     <div class="section-head"><h3>Routing Configuration</h3></div>
     <article class="card">
-      <div class="info-row"><span class="info-key">HEC URL</span><span class="info-val mono">${esc(cfg.splunk_hec_url || "-")}</span></div>
-      <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(cfg.splunk_index || "-")}</span></div>
-      <div class="info-row"><span class="info-key">Source tag</span><span class="info-val mono">${esc(cfg.splunk_source || "-")}</span></div>
+      <div class="info-row"><span class="info-key">HEC URL</span><span class="info-val mono">${esc(fv.splunkURL || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Index</span><span class="info-val mono">${esc(fv.splunkIndex || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Source tag</span><span class="info-val mono">${esc(fv.splunkSource || "-")}</span></div>
       <div class="info-row"><span class="info-key">HEC Token</span><span class="info-val">${cfg.splunk_hec_token_set ? "&#11044; configured (masked)" : "&#9675; not set"}</span></div>
       <div class="info-row"><span class="info-key">TLS Verify</span><span class="info-val">${cfg.splunk_verify_tls ? "yes" : "no"}</span></div>
-      <div class="info-row"><span class="info-key">Forwarding enabled</span><span class="info-val">${cfg.splunk_enabled ? "yes" : "no"}</span></div>
+      <div class="info-row"><span class="info-key">Forwarding enabled</span><span class="info-val">${fv.splunkEnabled ? "yes" : "no"}</span></div>
       <div class="info-row"><span class="info-key">Syslog forward</span><span class="info-val">${cfg.syslog_forward_enabled ? `${esc(cfg.syslog_forward_host)}:${esc(cfg.syslog_forward_port)} (${esc(cfg.syslog_forward_protocol)})` : "disabled"}</span></div>
+      <div class="info-row"><span class="info-key">Last HEC error</span><span class="info-val mono">${esc(fv.lastError || "-")}</span></div>
+      <div class="info-row"><span class="info-key">Last event ID</span><span class="info-val mono">${esc(fv.lastEventID || "-")}</span></div>
     </article>
 
     <div class="section-head"><h3>Reference SPL Queries</h3></div>

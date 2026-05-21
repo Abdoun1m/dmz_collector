@@ -47,8 +47,8 @@ func newTestApp(t *testing.T) *App {
 }
 
 type hecCapture struct {
-	mu      sync.Mutex
-	bodies  []map[string]any
+	mu       sync.Mutex
+	bodies   []map[string]any
 	requests int
 }
 
@@ -87,7 +87,6 @@ func waitForRequests(t *testing.T, capture *hecCapture, want int, timeout time.D
 	t.Fatalf("timed out waiting for %d hec requests", want)
 	return bodies
 }
-
 
 func mockOTConfigServer(t *testing.T, payload any) *httptest.Server {
 	t.Helper()
@@ -210,7 +209,6 @@ func TestSourceDetailReturnsRecentEvents(t *testing.T) {
 	}
 }
 
-
 func TestSourcesSummaryConfiguredCounts(t *testing.T) {
 	otServer := mockOTConfigServer(t, []sourcecatalog.OTConfiguredSource{
 		{ID: "plc1", Name: "PLC1", Type: "plc", IP: "192.168.1.20", Protocol: "syslog", Impact: "high", Zone: "L1/L2", Enabled: true, ForwardEnabled: true},
@@ -261,9 +259,12 @@ func TestInternalSourcesOnlyExposeDMZSupportSources(t *testing.T) {
 	}
 	for _, item := range items {
 		switch item.Name {
-		case "OT Collector", "DMZ Collector", "InfluxDB", "OPC UA DMZ Gateway", "Vault", "Vault Agent", "LabShock GDS", "PostgreSQL GDS", "Jump Host", "Firewall Future", "IDS Future":
+		case "DMZ Collector", "InfluxDB", "OPC UA DMZ Gateway", "Vault", "Vault Agent", "LabShock GDS", "PostgreSQL GDS", "Jump Host", "IDS Future":
 		default:
 			t.Fatalf("unexpected record in internal sources: %#v", item)
+		}
+		if item.Name == "OT Collector" || item.Name == "Firewall Future" {
+			t.Fatalf("support-only source should not be exposed in internal sources: %#v", item)
 		}
 		if item.Name == "PLC1" || item.Name == "PLC2" || item.Name == "PLC3" || item.Name == "PLC4" || item.Name == "PLC5" || item.Name == "OPNsense OT Firewall" || item.Name == "OT GDS Agent" || item.Name == "OPC UA Server" || item.Name == "EWS" || item.Name == "FUXA SCADA" {
 			t.Fatalf("unexpected operational source in internal sources: %#v", item)
@@ -408,13 +409,13 @@ func TestInternalPayloadSourcetypesStayCanonical(t *testing.T) {
 		expectedType string
 	}{
 		{
-			name: "firewall",
-			event: event.Event{ID: "fw-1", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceType: "opnsense", AssetIP: "192.168.10.1", AssetName: "OPNsense OT Firewall", Severity: "warning", EventCategory: "security", Message: "fw", Tags: map[string]any{"splunk_sourcetype": "labshock:net:firewall"}},
+			name:         "firewall",
+			event:        event.Event{ID: "fw-1", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceType: "opnsense", AssetIP: "192.168.10.1", AssetName: "OPNsense OT Firewall", Severity: "warning", EventCategory: "security", Message: "fw", Tags: map[string]any{"splunk_sourcetype": "labshock:net:firewall"}},
 			expectedType: "labshock:net:firewall",
 		},
 		{
-			name: "gds",
-			event: event.Event{ID: "gds-1", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceType: "gds-agent", AssetIP: "192.168.1.30", AssetName: "OT GDS Agent", Severity: "warning", EventCategory: "security", Message: "gds", Tags: map[string]any{"splunk_sourcetype": "labshock:ot:gds"}},
+			name:         "gds",
+			event:        event.Event{ID: "gds-1", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceType: "gds-agent", AssetIP: "192.168.1.30", AssetName: "OT GDS Agent", Severity: "warning", EventCategory: "security", Message: "gds", Tags: map[string]any{"splunk_sourcetype": "labshock:ot:gds"}},
 			expectedType: "labshock:ot:gds",
 		},
 	}
