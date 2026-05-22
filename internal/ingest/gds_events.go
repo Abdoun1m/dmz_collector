@@ -109,6 +109,9 @@ func NormalizeGDSEvent(raw []byte) (event.Event, error) {
 		return buildGDSOPCUAFacadeEvent(rec), nil
 	}
 	rec = redactMap(rec)
+	if class, canonical, ok := normalizeGDSContractEvent(rec); ok {
+		return buildGDSContractEvent(rec, class, canonical), nil
+	}
 	if dmz, ok := normalizeGDSDMZControlPlane(rec); ok {
 		return buildGDSDMZControlPlaneEvent(rec, dmz), nil
 	}
@@ -127,6 +130,173 @@ func NormalizeGDSEvent(raw []byte) (event.Event, error) {
 		return event.Event{}, nil
 	}
 	return buildGDSEvent(rec, class, eventType, msgText), nil
+}
+
+type gdsContractSpec struct {
+	Category            string
+	Severity            string
+	RiskLevel           string
+	Component           string
+	Source              string
+	Protocol            string
+	ParserVersion       string
+	NormalizationSource string
+	AlertCandidate      bool
+}
+
+var gdsContractSpecs = map[string]gdsContractSpec{
+	"vault_tls_verified":                   {Category: "pki_lifecycle", Severity: "info", RiskLevel: "LOW", Component: "vault", Source: "gds_events", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle"},
+	"vault_tls_insecure_fallback":          {Category: "security", Severity: "warning", RiskLevel: "HIGH", Component: "vault", Source: "gds_events", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle", AlertCandidate: true},
+	"vault_crl_checked":                    {Category: "pki_lifecycle", Severity: "info", RiskLevel: "LOW", Component: "vault", Source: "gds_events", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle"},
+	"vault_crl_expiring":                   {Category: "pki_lifecycle", Severity: "warning", RiskLevel: "MEDIUM", Component: "vault", Source: "gds_events", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle", AlertCandidate: true},
+	"vault_crl_expired":                    {Category: "pki_lifecycle", Severity: "critical", RiskLevel: "CRITICAL", Component: "vault", Source: "gds_events", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle", AlertCandidate: true},
+	"vault_crl_rotated":                    {Category: "pki_lifecycle", Severity: "info", RiskLevel: "LOW", Component: "vault", Source: "gds_events", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle"},
+	"trust_artifact_regenerated":           {Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW", Component: "trust_artifact", Source: "trust_artifact", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle"},
+	"trust_artifact_publish_failed":        {Category: "pki_trust_sync", Severity: "error", RiskLevel: "HIGH", Component: "trust_artifact", Source: "trust_artifact", Protocol: "http", ParserVersion: "v3.4.gds_pki_lifecycle", NormalizationSource: "gds_pki_lifecycle", AlertCandidate: true},
+	"client_trust_pull_success":            {Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW", Component: "gds_client_lifecycle", Source: "gds_client_lifecycle", Protocol: "http", ParserVersion: "v3.3.gds_client_lifecycle", NormalizationSource: "gds_client_lifecycle"},
+	"client_trust_apply_success":           {Category: "pki_trust_sync", Severity: "info", RiskLevel: "LOW", Component: "gds_client_lifecycle", Source: "gds_client_lifecycle", Protocol: "http", ParserVersion: "v3.3.gds_client_lifecycle", NormalizationSource: "gds_client_lifecycle"},
+	"client_certificate_renew_success":     {Category: "certificate_lifecycle", Severity: "info", RiskLevel: "LOW", Component: "gds_client_lifecycle", Source: "gds_client_lifecycle", Protocol: "http", ParserVersion: "v3.3.gds_client_lifecycle", NormalizationSource: "gds_client_lifecycle"},
+	"client_gds_validation_success":        {Category: "pki_lifecycle", Severity: "info", RiskLevel: "LOW", Component: "gds_client_lifecycle", Source: "gds_client_lifecycle", Protocol: "http", ParserVersion: "v3.3.gds_client_lifecycle", NormalizationSource: "gds_client_lifecycle"},
+	"client_gds_validation_failed":         {Category: "pki_lifecycle", Severity: "warning", RiskLevel: "HIGH", Component: "gds_client_lifecycle", Source: "gds_client_lifecycle", Protocol: "http", ParserVersion: "v3.3.gds_client_lifecycle", NormalizationSource: "gds_client_lifecycle", AlertCandidate: true},
+	"gds_opcua_method_called":              {Category: "access_control", Severity: "info", RiskLevel: "LOW", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade"},
+	"gds_opcua_method_allowed":             {Category: "access_control", Severity: "info", RiskLevel: "LOW", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade"},
+	"gds_opcua_method_denied":              {Category: "access_control", Severity: "warning", RiskLevel: "HIGH", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade", AlertCandidate: true},
+	"gds_opcua_invalid_input":              {Category: "access_control", Severity: "warning", RiskLevel: "MEDIUM", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade", AlertCandidate: true},
+	"gds_opcua_rate_limited":               {Category: "access_control", Severity: "warning", RiskLevel: "MEDIUM", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade", AlertCandidate: true},
+	"gds_opcua_internal_api_failed":        {Category: "error", Severity: "error", RiskLevel: "HIGH", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade", AlertCandidate: true},
+	"gds_opcua_sensitive_material_blocked": {Category: "data_protection", Severity: "critical", RiskLevel: "CRITICAL", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade", AlertCandidate: true},
+	"gds_opcua_method_completed":           {Category: "system_health", Severity: "info", RiskLevel: "LOW", Component: "gds_opcua_facade", Source: "gds_opcua_facade", Protocol: "opcua", ParserVersion: "v3.3.gds_opcua_facade", NormalizationSource: "gds_opcua_facade"},
+}
+
+func normalizeGDSContractEvent(rec map[string]any) (gdsClassification, string, bool) {
+	canonical := extractGDSContractMessage(rec)
+	spec, ok := gdsContractSpecs[canonical]
+	if !ok {
+		return gdsClassification{}, "", false
+	}
+	return gdsClassification{
+		Message:        canonical,
+		Category:       spec.Category,
+		Severity:       spec.Severity,
+		RiskLevel:      spec.RiskLevel,
+		AlertCandidate: spec.AlertCandidate,
+	}, canonical, true
+}
+
+func extractGDSContractMessage(rec map[string]any) string {
+	tags := mapAny(rec["tags"])
+	rawFields := mapAny(rec["raw"])
+	candidates := []string{
+		firstString(rec, "message", "event_type", "gds_action", "action", "log_message"),
+		firstString(tags, "message", "event_type", "gds_action", "action", "log_message"),
+		firstString(rawFields, "message", "event_type", "gds_action", "action", "log_message"),
+	}
+	if rawText := strings.TrimSpace(stringAny(rec["raw"])); rawText != "" {
+		candidates = append(candidates, rawText, parseGDSRawText(rawText))
+		var rawObj map[string]any
+		if err := json.Unmarshal([]byte(rawText), &rawObj); err == nil {
+			candidates = append(candidates, firstString(rawObj, "message", "event_type", "gds_action", "action", "log_message"))
+		}
+	}
+	for _, candidate := range candidates {
+		if msg := canonicalGDSContractMessage(candidate); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+func canonicalGDSContractMessage(value string) string {
+	text := strings.ToLower(strings.TrimSpace(value))
+	if text == "" {
+		return ""
+	}
+	if idx := strings.Index(text, ":"); idx >= 0 {
+		text = strings.TrimSpace(text[idx+1:])
+	}
+	fields := strings.Fields(text)
+	if len(fields) > 0 {
+		text = fields[0]
+	}
+	text = strings.Trim(text, `"'`)
+	if _, ok := gdsContractSpecs[text]; ok {
+		return text
+	}
+	return ""
+}
+
+func buildGDSContractEvent(rec map[string]any, class gdsClassification, canonical string) event.Event {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	ts := firstString(rec, "timestamp", "created_at", "generated_at", "reported_at", "ts", "time")
+	if ts == "" {
+		ts = now
+	}
+	spec := gdsContractSpecs[canonical]
+	rawPayload := extractOriginalGDSRaw(rec)
+	rawMap := mapAny(rawPayload)
+	if len(rawMap) == 0 {
+		rawMap = gdsSafeFields(rec)
+	}
+	rawMap = redactMap(rawMap)
+
+	source := strings.TrimSpace(firstString(rec, "source"))
+	if source == "" || source == "gds_events" && spec.Component != "vault" {
+		source = spec.Source
+	}
+	protocol := strings.TrimSpace(firstString(rec, "protocol"))
+	if protocol == "" || protocol == "gds_event" {
+		protocol = spec.Protocol
+	}
+
+	tags := map[string]any{}
+	if incoming := mapAny(rec["tags"]); len(incoming) > 0 {
+		for k, v := range redactMap(incoming) {
+			tags[k] = v
+		}
+	}
+	tags["component"] = spec.Component
+	tags["zone"] = "DMZ"
+	tags["purdue_zone"] = "dmz"
+	tags["normalized"] = true
+	tags["parser_version"] = spec.ParserVersion
+	tags["normalization_source"] = spec.NormalizationSource
+	tags["splunk_sourcetype"] = gdsSourcetype
+	tags["siem_index_hint"] = "ot_security"
+	tags["collector_decision_hint"] = "store_forward"
+	tags["risk_level"] = spec.RiskLevel
+	if spec.AlertCandidate {
+		tags["alert_candidate"] = true
+	} else if _, ok := tags["alert_candidate"]; !ok {
+		tags["alert_candidate"] = false
+	}
+	promoteGDSContractTags(tags, rec, rawMap)
+
+	rawJSON, _ := json.Marshal(compactGDSMap(rawMap))
+	ev := event.Event{
+		Timestamp:     ts,
+		ReceivedAt:    now,
+		Zone:          "DMZ",
+		Source:        source,
+		SourceType:    "gds",
+		AssetName:     gdsAssetName,
+		AssetIP:       gdsAssetIP,
+		Severity:      class.Severity,
+		Protocol:      protocol,
+		EventCategory: class.Category,
+		Message:       canonical,
+		Raw:           string(rawJSON),
+		Tags:          compactGDSMap(tags),
+		ExtraFields: map[string]any{
+			"risk_level": class.RiskLevel,
+		},
+	}
+	for _, key := range gdsContractTagKeys {
+		if v, ok := tags[key]; ok {
+			ev.ExtraFields[key] = v
+		}
+	}
+	ev.EnsureDefaults()
+	return ev
 }
 
 func normalizeGDSHealth(rec map[string]any) (event.Event, bool) {
@@ -296,9 +466,13 @@ func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
 
 	for _, key := range gdsOPCUAFacadeMetadataKeys {
 		copySafeField(tags, rawFields, key, key)
+		copySafeField(tags, rec, key, key)
 	}
+	promoteGDSContractTags(tags, rec, rawFields)
 	if class.AlertCandidate {
 		tags["alert_candidate"] = true
+	} else if _, ok := tags["alert_candidate"]; !ok {
+		tags["alert_candidate"] = false
 	}
 
 	rawJSON, _ := json.Marshal(compactGDSMap(rawFields))
@@ -330,6 +504,35 @@ func buildGDSOPCUAFacadeEvent(rec map[string]any) event.Event {
 var gdsOPCUAFacadeMetadataKeys = []string{
 	"method_name", "method_class", "application_uri", "decision", "reason", "result_code",
 	"duration_ms", "correlation_id", "opcua_session_id", "gds_action", "gds_family", "log_message",
+}
+
+var gdsContractTagKeys = []string{
+	"method_name", "method_class", "application_uri", "decision", "reason", "result_code",
+	"duration_ms", "opcua_session_id", "vault_mount", "crl_name", "crl_next_update",
+	"crl_sha256", "threshold_hours", "expiry", "target", "trustlist_zone",
+	"trustlist_role", "artifact_revision", "artifact_sha256", "runtime_instance_id",
+	"status", "correlation_id", "gds_action", "gds_family", "log_message",
+}
+
+func promoteGDSContractTags(tags map[string]any, rec map[string]any, rawFields map[string]any) {
+	incomingTags := mapAny(rec["tags"])
+	for _, key := range gdsContractTagKeys {
+		if _, exists := tags[key]; exists {
+			continue
+		}
+		for _, src := range []map[string]any{rawFields, incomingTags, rec} {
+			if src == nil {
+				continue
+			}
+			if isGDSSensitiveKey(key) {
+				continue
+			}
+			if v, ok := src[key]; ok && v != nil {
+				tags[key] = v
+				break
+			}
+		}
+	}
 }
 
 func extractGDSOPCUAFacadeMessage(rec map[string]any) string {
@@ -377,7 +580,11 @@ func canonicalGDSOPCUAFacadeMessage(value string) string {
 }
 
 func classifyGDSOPCUAFacadeMessage(message string) gdsClassification {
-	switch strings.ToLower(strings.TrimSpace(message)) {
+	canonical := strings.ToLower(strings.TrimSpace(message))
+	if spec, ok := gdsContractSpecs[canonical]; ok {
+		return gdsClassification{Message: canonical, Category: spec.Category, Severity: spec.Severity, RiskLevel: spec.RiskLevel, AlertCandidate: spec.AlertCandidate}
+	}
+	switch canonical {
 	case "gds_opcua_method_called":
 		return gdsClassification{Message: message, Category: "access_control", Severity: "info", RiskLevel: "LOW"}
 	case "gds_opcua_method_allowed":
@@ -914,9 +1121,12 @@ func gdsSafeFields(rec map[string]any) map[string]any {
 	copySafeField(out, rec, "reason", "reason")
 	copySafeField(out, rec, "error", "error")
 	copySafeField(out, rec, "line", "line")
+	for _, key := range gdsContractTagKeys {
+		copySafeField(out, rec, key, key)
+	}
 
 	if raw := mapAny(rec["raw"]); len(raw) > 0 {
-		for _, key := range []string{"event_type", "actor", "target", "application_uri", "runtime_instance_id", "package_id", "request_id", "certificate_id", "fingerprint_sha256", "certificate_fingerprint_sha256", "serial_number", "trustlist_zone", "trustlist_role", "trustlist_version", "artifact_revision", "artifact_sha256", "error_code", "correlation_id", "source_ip", "mtls_verify_status", "status", "component", "generated_at", "created_at", "reported_at", "table", "row_count", "latest_id", "latest_created_at", "latest_updated_at", "db_connected", "checks", "postgres", "tables", "log_message", "gds_action", "gds_family"} {
+		for _, key := range append([]string{"event_type", "actor", "target", "application_uri", "runtime_instance_id", "package_id", "request_id", "certificate_id", "fingerprint_sha256", "certificate_fingerprint_sha256", "serial_number", "trustlist_zone", "trustlist_role", "trustlist_version", "artifact_revision", "artifact_sha256", "error_code", "correlation_id", "source_ip", "mtls_verify_status", "status", "component", "generated_at", "created_at", "reported_at", "table", "row_count", "latest_id", "latest_created_at", "latest_updated_at", "db_connected", "checks", "postgres", "tables", "log_message", "gds_action", "gds_family"}, gdsContractTagKeys...) {
 			copySafeField(out, raw, key, key)
 		}
 	}
@@ -1014,6 +1224,10 @@ func looksLikeGDSOPCUAFacadeSecret(value string) bool {
 
 func isGDSSensitiveKey(key string) bool {
 	k := strings.ToLower(strings.TrimSpace(key))
+	switch k {
+	case "crl_name", "crl_next_update", "crl_sha256":
+		return false
+	}
 	sensitive := []string{"token", "authorization", "password", "passwd", "private_key", "privatekey", "key_pem", "pem", "csr", "csr_pem", "certificate_pem", "certificate_body", "cert_body", "full_certificate", "cert_pem", "ca_chain", "ca_chain_pem", "crl", "crl_body", "crl_base64", "crl_bundle", "signature", "secret"}
 	if strings.Contains(k, "accessor") {
 		return false

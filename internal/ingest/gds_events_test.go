@@ -392,6 +392,108 @@ func TestNormalizeGDSOPCUAFacadeSensitiveRedaction(t *testing.T) {
 	}
 }
 
+func TestNormalizeGDSContractCRLRotated(t *testing.T) {
+	raw := []byte(`{
+	  "source_type":"gds",
+	  "source":"gds_events",
+	  "asset_name":"labshock_gds",
+	  "asset_ip":"192.168.10.30",
+	  "zone":"DMZ",
+	  "protocol":"http",
+	  "message":"vault_crl_rotated",
+	  "event_category":"pki_lifecycle",
+	  "severity":"info",
+	  "timestamp":"2026-05-22T10:15:30Z",
+	  "raw":{
+	    "vault_mount":"pki-int",
+	    "crl_name":"intermediate",
+	    "crl_next_update":"2026-05-25T10:15:30Z",
+	    "expiry":"72h"
+	  },
+	  "tags":{
+	    "component":"vault",
+	    "vault_mount":"pki-int",
+	    "crl_name":"intermediate"
+	  }
+	}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "vault_crl_rotated" || ev.EventCategory != "pki_lifecycle" || ev.Severity != "info" || ev.Protocol != "http" {
+		t.Fatalf("unexpected CRL contract event: %#v", ev)
+	}
+	if ev.Tags["component"] != "vault" || ev.Tags["parser_version"] != "v3.4.gds_pki_lifecycle" || ev.Tags["normalization_source"] != "gds_pki_lifecycle" || ev.Tags["risk_level"] != "LOW" {
+		t.Fatalf("unexpected CRL tags: %#v", ev.Tags)
+	}
+	if ev.Tags["vault_mount"] != "pki-int" || ev.Tags["crl_name"] != "intermediate" || ev.Tags["expiry"] != "72h" {
+		t.Fatalf("expected CRL metadata tags, got %#v", ev.Tags)
+	}
+}
+
+func TestNormalizeGDSContractPromotesTagsGDSAction(t *testing.T) {
+	raw := []byte(`{
+	  "source_type":"gds",
+	  "source":"gds_events",
+	  "message":"gds_event_unknown",
+	  "raw":{
+	    "application_uri":"urn:dataprotect:opcua:ot-server",
+	    "runtime_instance_id":"urn:dataprotect:opcua:ot-server",
+	    "target":"ot-server",
+	    "status":"failed",
+	    "result_code":"validation_failed"
+	  },
+	  "tags":{
+	    "gds_action":"client_gds_validation_failed",
+	    "application_uri":"urn:dataprotect:opcua:ot-server"
+	  }
+	}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "client_gds_validation_failed" || ev.EventCategory != "pki_lifecycle" || ev.Severity != "warning" {
+		t.Fatalf("unexpected client lifecycle contract event: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Source != "gds_client_lifecycle" || ev.Tags["component"] != "gds_client_lifecycle" || ev.Tags["parser_version"] != "v3.3.gds_client_lifecycle" {
+		t.Fatalf("unexpected client lifecycle identity/tags: source=%s tags=%#v", ev.Source, ev.Tags)
+	}
+	if ev.Tags["risk_level"] != "HIGH" || ev.Tags["alert_candidate"] != true {
+		t.Fatalf("expected high-risk alert tags, got %#v", ev.Tags)
+	}
+	if ev.Tags["application_uri"] != "urn:dataprotect:opcua:ot-server" || ev.Tags["target"] != "ot-server" || ev.Tags["result_code"] != "validation_failed" {
+		t.Fatalf("expected client lifecycle metadata, got %#v", ev.Tags)
+	}
+}
+
+func TestNormalizeGDSContractTrustArtifactFields(t *testing.T) {
+	raw := []byte(`{
+	  "source_type":"gds",
+	  "message":"trust_artifact_regenerated",
+	  "raw":{
+	    "target":"trustlist_artifact:OT:server",
+	    "trustlist_zone":"OT",
+	    "trustlist_role":"server",
+	    "artifact_revision":7,
+	    "artifact_sha256":"abcdef0123456789",
+	    "reason":"crl_refresh"
+	  }
+	}`)
+	ev, err := NormalizeGDSEvent(raw)
+	if err != nil {
+		t.Fatalf("NormalizeGDSEvent returned error: %v", err)
+	}
+	if ev.Message != "trust_artifact_regenerated" || ev.EventCategory != "pki_trust_sync" || ev.Severity != "info" {
+		t.Fatalf("unexpected trust artifact event: %s %s %s", ev.Message, ev.EventCategory, ev.Severity)
+	}
+	if ev.Source != "trust_artifact" || ev.Tags["component"] != "trust_artifact" || ev.Tags["risk_level"] != "LOW" {
+		t.Fatalf("unexpected trust artifact identity/tags: source=%s tags=%#v", ev.Source, ev.Tags)
+	}
+	if ev.Tags["target"] != "trustlist_artifact:OT:server" || ev.Tags["trustlist_zone"] != "OT" || ev.Tags["trustlist_role"] != "server" || ev.Tags["artifact_revision"] != float64(7) {
+		t.Fatalf("expected trust artifact metadata, got %#v", ev.Tags)
+	}
+}
+
 func TestNormalizeGDSEventExplicitHealthEvents(t *testing.T) {
 	tests := []struct {
 		eventType string
